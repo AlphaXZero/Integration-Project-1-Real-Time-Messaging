@@ -3,6 +3,7 @@
 ## Documentation
 - [ ] Fix PUML diagram
 - [ ] Fix Project_specifications.md
+- [ ] Add key in .env
 
 ## Important
 - [ ] Multi-user conversations (groups)
