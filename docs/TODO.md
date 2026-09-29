@@ -13,6 +13,7 @@
 - [ ] Image/GIF support
 
 ## Nice to have
+- [ ] add password verification in account/serializers.py
 - [ ] Edit message
 - [ ] AI fact-checking
 - [ ] Auto-moderation?

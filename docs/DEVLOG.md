@@ -106,7 +106,100 @@ curl -X POST http://localhost:8000/api/token/ \
 - Wrong credentials: `{"detail": "No active account found with the given credentials"}`.
 
 **Gotcha**: the first attempt returned an HTML error page (`OperationalError`). The fresh database had no tables yet, so Django couldn't look up the user. Fix: run `uv run manage.py migrate` on any new database, then `uv run manage.py createsuperuser`.
+## Backend: user registration endpoint
 
+### Serializer
+A serializer converts a Python/model object into JSON (and back), validating the data along the way — same role as `ModelForm` played earlier, just for JSON instead of HTML.
+
+`accounts/serializers.py`
+```python
+from rest_framework import serializers
+from django.contrib.auth.models import User
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "password"]
+        extra_kwargs = {"password": {"write_only": True}}
+
+    def create(self, validated_data):
+        return User.objects.create_user(
+            username=validated_data["username"], password=validated_data["password"]
+        )
+```
+`model`, `fields` and `extra_kwargs` come from the `Meta` class:
+- `model` tells the serializer which Django model to inspect for its fields.
+- `fields` lists which fields to expose, in and out.
+- `extra_kwargs` tweaks how a specific field behaves without redefining it entirely — here, `write_only` means `password` is accepted on input but never included in the JSON response.
+
+`create()` must call `User.objects.create_user(...)`, not `User.objects.create(...)`: the former hashes the password before saving, the latter would store it in plain text.
+
+**Gap**: `ModelSerializer` validates what the model already constrains (username uniqueness, required fields), but not password strength — `UserCreationForm` used to run Django's `AUTH_PASSWORD_VALIDATORS` automatically, this serializer doesn't. Added to `TODO.md` for later (a `validate_password` method calling `django.contrib.auth.password_validation.validate_password`).
+
+### View
+`accounts/views.py`
+```python
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from .serializers import RegisterSerializer
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def register_view_api(request):
+    serializer = RegisterSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=201)
+    return Response(serializer.errors, status=400)
+```
+`@api_view` bridges plain Django and DRF: it turns the incoming request into DRF's `Request` (giving `request.data`, parsed from JSON), turns the returned `Response` into a real HTTP response, restricts which HTTP methods are allowed (`["POST"]`), and is what makes `@permission_classes` work at all — it has to sit above it.
+
+`AllowAny` is needed because registration must be reachable by visitors with no account yet, unlike `conversation_list` which requires `IsAuthenticated`.
+
+`serializer.save()` is what actually calls `create()` — never call `create()` directly, it would skip validation.
+
+### Routes
+`accounts/urls.py`:
+```python
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("register/", views.register_view_api),
+]
+```
+
+`config/urls.py`:
+```python
+from django.urls import path, include
+
+...
+(path("api/", include("accounts.urls")),)
+```
+Prefix stops at `api/` — the `register/` part comes from `accounts/urls.py` itself, so the two don't get concatenated into `api/register/register/`.
+
+### Testing
+
+With the server running:
+```bash
+curl -X POST http://localhost:8000/api/register/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "test1", "password": "unmotdepasse123"}'
+```
+Returns `{"id": 2, "username": "test1"}` — no password in the response, thanks to `write_only`.
+
+Repeating the exact same request returns a clear validation error instead of a crash: `username` is `unique=True` on the `User` model, and `ModelSerializer` generates that check automatically from the model constraint, no extra code needed.
+
+Confirms the full flow (register → login) by requesting a JWT with the same credentials:
+```bash
+curl -X POST http://localhost:8000/api/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "test1", "password": "unmotdepasse123"}'
+```
+Returns `access` + `refresh` — the account created through `/api/register/` can log in through SimpleJWT's existing `/api/token/`. No separate "login view" was needed here: JWT only required a registration endpoint, since SimpleJWT already provides login out of the box.
 
 
 ## Decisions carried over from the exploration phase
