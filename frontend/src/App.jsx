@@ -1,9 +1,10 @@
 import RegisterForm from "./components/RegisterForm";
+import Navbar from "./components/NavBar";
 
 function App() {
   return (
     <div>
-      <h1>Créer un compte</h1>
+      <Navbar />
       <RegisterForm />
     </div>
   );
