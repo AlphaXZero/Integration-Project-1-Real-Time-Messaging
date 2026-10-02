@@ -201,6 +201,133 @@ curl -X POST http://localhost:8000/api/token/ \
 ```
 Returns `access` + `refresh` — the account created through `/api/register/` can log in through SimpleJWT's existing `/api/token/`. No separate "login view" was needed here: JWT only required a registration endpoint, since SimpleJWT already provides login out of the box.
 
+## Backend : conversations GET endpoint
+
+### Create the models
+```python
+from django.db import models
+from django.contrib.auth.models import User
+
+
+class Conversation(models.Model):
+    participants = models.ManyToManyField(User)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return ", ".join(user.username for user in self.participants.all())
+
+
+class Message(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    content = models.TextField()
+```
+ManyToMany takes care of the n..n relation for us (Django creates the join table automatically). ForeignKey creates a direct link between two tables (one row points to exactly one row of the other table).
+
+
+```bash
+uv run manage.py makemigrations chat
+uv run manage.py migrate
+```
+
+### Register models in admin
+To create test data (conversations/messages) without building the write endpoints first:
+```python
+from django.contrib import admin
+from .models import Conversation, Message
+
+admin.site.register(Conversation)
+admin.site.register(Message)
+```
+
+### Create the serializers
+```python
+from rest_framework import serializers
+from .models import Conversation, Message
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ["author", "conversation", "created_at", "content"]
+
+
+class ConversationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ["participants", "created_at"]
+```
+
+### Create the views
+```python
+from rest_framework import generics, permissions
+from .models import Conversation
+from .serializers import ConversationSerializer
+
+
+class ConversationListView(generics.ListAPIView):
+    serializer_class = ConversationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Conversation.objects.filter(participants=self.request.user)
+```
+Only returns conversations where the logged-in user is a participant — matches the spec rule "cannot read conversations you're not part of".
+
+### Create the urls
+```python
+from django.urls import path
+from .views import ConversationListView, MessageListView
+
+urlpatterns = [
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+]
+```
+and `path("api/", include("chat.urls"))` in the project's `config/urls.py`.
+
+### Testing
+```bash
+curl -H "Authorization: Bearer <access_token>" http://localhost:8000/api/conversations/
+```
+→ returns only the conversations the authenticated user participates in.
+
+---
+
+## Backend: Messages list GET
+
+### Create the view
+```python
+class MessageListView(generics.ListAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        conversation_id = self.kwargs["conversation_id"]
+        return Message.objects.filter(
+            conversation_id=conversation_id,
+            conversation__participants=self.request.user,
+        )
+```
+
+### Update the urls
+```python
+urlpatterns = [
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/<int:conversation_id>/messages/",
+        MessageListView.as_view(),
+        name="message-list",
+    ),
+]
+```
+
+### Testing
+```bash
+curl -H "Authorization: Bearer <access_token>" http://localhost:8000/api/conversations/1/messages/
+```
+→ returns the messages of conversation #1 if the user is a participant, `[]` otherwise (even if the conversation exists) — no information is leaked about conversations the user doesn't belong to.
+
 
 ## Decisions carried over from the exploration phase
 (to be implemented, not yet done in the clean project)
