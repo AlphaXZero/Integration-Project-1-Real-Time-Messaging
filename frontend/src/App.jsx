@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router";
-import Navbar from "./components/Navbar";
+import Navbar from "./components/NavBar";
 import RegisterForm from "./components/RegisterForm";
 import LoginForm from "./components/LoginForm";
 import ChatPage from "./components/ChatPage";
