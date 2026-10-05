@@ -72,9 +72,8 @@ function ChatPage() {
             <li key={conversation.id}>
               <button
                 onClick={() => selectConversation(conversation.id)}
-                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
-                  conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
-                }`}
+                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
+                  }`}
               >
                 <p className="font-semibold text-ink">Conversation {conversation.id}</p>
                 <p className="text-xs text-mist">Participants : {conversation.participants.join(", ")}</p>
@@ -119,12 +118,11 @@ function ChatPage() {
                     className={`flex max-w-[75%] flex-col ${isMine ? "self-end items-end" : "self-start items-start"}`}
                   >
                     {!isMine && (
-                      <span className="mb-1 text-xs font-semibold text-gold">Utilisateur {message.author}</span>
+                      <span className="mb-1 text-xs font-semibold text-gold">{message.author_name}</span>
                     )}
                     <p
-                      className={`rounded-2xl px-4 py-2 text-sm ${
-                        isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
-                      }`}
+                      className={`rounded-2xl px-4 py-2 text-sm ${isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
+                        }`}
                     >
                       {message.content}
                     </p>
