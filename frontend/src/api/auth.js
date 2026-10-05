@@ -41,3 +41,11 @@ export function logout() {
 export function isLoggedIn() {
   return localStorage.getItem("access") !== null;
 }
+
+export function getCurrentUserId() {
+  const token = localStorage.getItem("access");
+  if (!token) return null;
+
+  const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+  return Number(JSON.parse(atob(payload)).user_id);
+}
