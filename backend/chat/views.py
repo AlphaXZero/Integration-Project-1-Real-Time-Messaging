@@ -4,12 +4,16 @@ from .serializers import ConversationSerializer, MessageSerializer
 from django.shortcuts import get_object_or_404
 
 
-class ConversationListView(generics.ListAPIView):
+class ConversationListView(generics.ListCreateAPIView):
     serializer_class = ConversationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return Conversation.objects.filter(participants=self.request.user)
+
+    def perform_create(self, serializer):
+        new_list = serializer.validated_data["participants"] + [self.request.user]
+        serializer.save(participants=new_list)
 
 
 class MessageListView(generics.ListCreateAPIView):
