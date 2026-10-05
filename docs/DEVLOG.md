@@ -347,7 +347,7 @@ export async function getConversations() {
 }
 ```
 return a list with every conversation where the user participate
-[{id,paricipants: [2,3], created-at:xxx}]
+[{id,paricipants: [2:"loic",3], created-at:xxx}]
 ```
 export async function getMessages(conversationId) {
   const response = await fetch(
@@ -427,6 +427,72 @@ In the perform_create() we check if the user is in the conversation by looking e
   return await response.json();
 }
 ```
+
+## backend : modify Serializers chat
+### message
+first of all i added author_name in the serizalizer in order to show the name of the user in the frontend
+```
+class MessageSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = Message
+        fields = [
+            "id",
+            "author",
+            "author_name",
+            "conversation",
+            "created_at",
+            "content",
+        ]
+        read_only_fields = [
+            "id",
+            "author",
+            "conversation",
+            "created_at",
+        ]
+
+```
+then i changed the conversation serizalizer to send every participants username of the conversation
+### conversatoin
+#### Problem
+The frontend only received user ids (`"author": 1`, `"participants": [1, 2]`), so it had no way to display names.
+
+#### Message author name
+```python
+author_name = serializers.CharField(source="author.username", read_only=True)
+```
+`source` accepts a dotted path to follow a relation: DRF reads `message.author.username`. Nothing is stored twice in the database, the name always comes from `User`.
+
+#### Nested serializer for participants
+```python
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username"]
+```
+Only `id` and `username` are exposed, never `password` or `email`. It is then reused in `ConversationSerializer` with `participants = UserSerializer(many=True, read_only=True)`, so the API returns `[{"id": 1, "username": "..."}, ...]`.
+
+#### Reading vs writing
+A nested serializer is read-only, so it cannot be used to create a conversation. Two fields are used instead:
+- `participants`: output, list of `{id, username}`
+- `participant_ids`: input (`write_only`), list of ids, validated against `User.objects.all()` so unknown ids return a 400
+
+```python
+participant_ids = serializers.PrimaryKeyRelatedField(
+    many=True,
+    queryset=User.objects.all(),
+    write_only=True,
+    source="participants",
+)
+```
+`source="participants"` makes the validated data land in `validated_data["participants"]`, so `perform_create` is unchanged.
+
+#### Key learnings
+- A declared serializer field goes above `class Meta`, not inside it.
+- `list.append()` returns `None`: use `list + [item]` when you need the new list.
+- Showing data and accepting data are two different jobs: a field can be `read_only` or `write_only`, and the same model field can have one of each.
+
 
 ## Decisions carried over from the exploration phase
 (to be implemented, not yet done in the clean project)
