@@ -328,6 +328,105 @@ curl -H "Authorization: Bearer <access_token>" http://localhost:8000/api/convers
 ```
 → returns the messages of conversation #1 if the user is a participant, `[]` otherwise (even if the conversation exists) — no information is leaked about conversations the user doesn't belong to.
 
+### how to fetch in frontend
+```
+const BASE_URL = "http://localhost:8000/api";
+
+export async function getConversations() {
+  const response = await fetch(`${BASE_URL}/conversations/`, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("access")}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw await response.json();
+  }
+
+  return response.json();
+}
+```
+return a list with every conversation where the user participate
+[{id,paricipants: [2,3], created-at:xxx}]
+```
+export async function getMessages(conversationId) {
+  const response = await fetch(
+    `${BASE_URL}/conversations/${conversationId}/messages/`,
+    {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("access")}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw await response.json();
+  }
+
+  return response.json();
+}
+```
+return somethin like that
+[
+  {
+    id: 1,
+    author: 2,
+    conversation: 1,
+    created_at: "2026-09-29T18:57:18.926459Z",
+    content: "test message",
+  },
+  {
+    id: 2,
+    author: 3,
+    conversation: 1,
+    created_at: "2026-09-29T18:58:02.114872Z",
+    content: "salut !",
+  },
+]
+
+## backend: message post
+i changed the views to accept post
+```python
+class MessageListView(generics.ListCreateAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        conversation_id = self.kwargs["conversation_id"]
+        return Message.objects.filter(
+            conversation_id=conversation_id,
+            conversation__participants=self.request.user,
+        ).order_by("created_at")
+
+    def perform_create(self, serializer):
+        conversation = get_object_or_404(
+            Conversation,
+            id=self.kwargs["conversation_id"],
+            participants=self.request.user,
+        )
+        serializer.save(author=self.request.user, conversation=conversation)
+```
+now we herits from generics.ListCreateAPIView instead of ListAPIView,
+i also set every fields in the serializers to be in read only except content so an user cant write in another conversation where hes not in.
+In the perform_create() we check if the user is in the conversation by looking every conversations then we save
+
+### how to fetch
+```export async function sendMessage(conversationId, content) {
+  const response = await fetch(`${BASE_URL}/conversations/${conversationId}/messages/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("access")}`,
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!response.ok) {
+    throw await response.json();
+  }
+  return await response.json();
+}
+```
 
 ## Decisions carried over from the exploration phase
 (to be implemented, not yet done in the clean project)
