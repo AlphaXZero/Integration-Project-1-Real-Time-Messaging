@@ -32,13 +32,14 @@ class MessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserSerializer(many=True, read_only=True)
-    participant_ids = serializers.PrimaryKeyRelatedField(
+    participant_usernames = serializers.SlugRelatedField(
         many=True,
         queryset=User.objects.all(),
+        slug_field="username",
         write_only=True,
         source="participants",
     )
 
     class Meta:
         model = Conversation
-        fields = ["id", "participants", "participant_ids", "created_at"]
+        fields = ["id", "participants", "participant_usernames", "created_at"]
