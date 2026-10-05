@@ -3,6 +3,7 @@ import Navbar from "./components/NavBar";
 import RegisterForm from "./components/RegisterForm";
 import LoginForm from "./components/LoginForm";
 import ChatPage from "./components/ChatPage";
+import TeamPage from "./components/TeamPage";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
           <Route path="/register" element={<RegisterForm />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/equipe" element={<TeamPage />} />          
           <Route path="*" element={<Navigate to="/login" />} />
         </Routes>
       </main>
