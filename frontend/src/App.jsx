@@ -5,6 +5,7 @@ import LoginForm from "./components/LoginForm";
 import ChatPage from "./components/ChatPage";
 import TeamPage from "./components/TeamPage";
 import HomePage from "./components/HomePage";
+import PricingPage from "./components/PricingPage";
 
 function App() {
   return (
@@ -16,7 +17,8 @@ function App() {
           <Route path="/register" element={<RegisterForm />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/chat" element={<ChatPage />} />
-          <Route path="/equipe" element={<TeamPage />} />          
+          <Route path="/equipe" element={<TeamPage />} />
+          <Route path="/tarifs" element={<PricingPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

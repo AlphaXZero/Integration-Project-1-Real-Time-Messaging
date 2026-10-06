@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { isLoggedIn, logout } from "../api/auth";
 
-const navLinks = [{ to: "/equipe", label: "Notre équipe" }];
+const navLinks = [{ to: "/equipe", label: "Notre équipe" }, { to: "/tarifs", label: "Tarifs" }];
+
 
 const linkClass =
   "text-xs font-bold uppercase tracking-wide text-mist transition hover:text-ink";
