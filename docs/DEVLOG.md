@@ -493,6 +493,153 @@ participant_ids = serializers.PrimaryKeyRelatedField(
 - `list.append()` returns `None`: use `list + [item]` when you need the new list.
 - Showing data and accepting data are two different jobs: a field can be `read_only` or `write_only`, and the same model field can have one of each.
 
+## Backend: WebSocket (Django Channels)
+
+### Why
+With plain HTTP the server can only answer requests: when Marie posts a message, Valentin doesn't see it until his page fetches the messages again. A WebSocket keeps a connection open in both directions, so the server can **push** new messages to the client instantly.
+
+Design choice:
+- **Sending** a message stays on the existing `POST /api/conversations/<id>/messages/` (already validated, secured and tested).
+- **Receiving** in real time goes through the WebSocket.
+- **One WebSocket per user** (`ws/chat/`), not one per conversation: the frontend opens a single connection, and each user joins their own group `user_<id>`. This also makes it possible to notify about messages in conversations that aren't currently open.
+
+### Installation
+```bash
+uv add channels daphne
+```
+- **Channels**: adds WebSocket support to Django (consumers, routing, groups).
+- **Daphne**: an ASGI server that replaces the default `runserver`.
+
+### Settings (`config/settings.py`)
+```python
+INSTALLED_APPS = [
+    "daphne",  # must be first, so its runserver overrides Django's
+    "django.contrib.admin",
+    # ...
+    "rest_framework",
+    "channels",
+    "accounts",
+    "chat",
+]
+
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
+```
+- **WSGI** (Web Server Gateway Interface) handles one request → one response, then the connection closes.
+- **ASGI** (Asynchronous Server Gateway Interface) also supports long-lived connections like WebSockets, and can handle many open connections at the same time without blocking.
+- **Channel layer**: the internal messaging system used to send a message from one connection to others (through groups). In-memory is fine for development; it will be replaced by Redis for production.
+
+Check that it works:
+```bash
+uv run manage.py runserver
+```
+```
+Starting ASGI/Daphne version 4.2.3 development server at http://127.0.0.1:8000/
+```
+The API still works as before.
+
+### Consumer (`chat/consumers.py`)
+A consumer is the WebSocket equivalent of a view. Instead of one function per request, it's a class whose methods are called on events (connect, receive, disconnect).
+
+First version: an echo consumer, to check the whole chain works.
+Second version: authentication with the JWT.
+
+```python
+from urllib.parse import parse_qs
+
+from channels.generic.websocket import AsyncWebsocketConsumer
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import AccessToken
+
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        # read the token from the URL (?token=...)
+        query = parse_qs(self.scope["query_string"].decode())
+        token = query.get("token", [None])[0]
+
+        # no token → reject
+        if not token:
+            await self.close()
+            return
+
+        # invalid or expired token → reject
+        try:
+            self.user_id = AccessToken(token)["user_id"]
+        except TokenError:
+            await self.close()
+            return
+
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        pass
+
+    async def receive(self, text_data):
+        await self.send(text_data=text_data)  # echo, temporary
+```
+
+Why the token is in the URL: the browser's `WebSocket` API can't set headers, so `Authorization: Bearer ...` isn't possible like with `fetch`.
+
+### Routing (`chat/routing.py`)
+The WebSocket equivalent of `urls.py`:
+```python
+from django.urls import path
+from .consumers import ChatConsumer
+
+websocket_urlpatterns = [
+    path("ws/chat/", ChatConsumer.as_asgi()),
+]
+```
+Nothing to add in `config/urls.py`: it only handles HTTP.
+
+### ASGI entry point (`config/asgi.py`)
+```python
+import os
+
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+# must run before importing anything that uses the models
+django_asgi_app = get_asgi_application()
+
+from channels.routing import ProtocolTypeRouter, URLRouter
+from chat.routing import websocket_urlpatterns
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,  # the REST API, unchanged
+        "websocket": URLRouter(websocket_urlpatterns),  # WebSocket connections
+    }
+)
+```
+`ProtocolTypeRouter` sends each connection to the right place depending on its type.
+
+### Testing (browser console)
+```javascript
+// no token → connection closed
+const ws1 = new WebSocket("ws://localhost:8000/ws/chat/");
+ws1.onclose = () => console.log("closed (expected)");
+
+// valid token → connection open, echo works
+const ws2 = new WebSocket(`ws://localhost:8000/ws/chat/?token=${localStorage.getItem("access")}`);
+ws2.onmessage = (e) => console.log("received:", e.data);
+ws2.onopen = () => ws2.send("hello");
+```
+
+### Key learnings
+- **`self` vs the parent class**: `self.accept()`, not `AsyncWebsocketConsumer.accept()`. The class is the generic blueprint; `self` is the consumer of *this* connection.
+- **Events vs actions**: `connect`, `receive` and `disconnect` are called *by* Channels (events). `accept`, `send` and `close` are called *by me* (actions). To reject a connection, use `close()`, not `disconnect()`.
+- **`AccessToken(None)` doesn't fail**: without an argument, simplejwt creates a brand-new valid token. The "no token" check must come before it, otherwise a connection without a token would be accepted.
+- `async` / `await` work like in JavaScript: while one connection waits, the server handles the others.
+
+### Next
+Groups: each connection joins `user_<id>`, and the `POST` view sends every new message to the group of each participant.
+
 
 ## Decisions carried over from the exploration phase
 (to be implemented, not yet done in the clean project)
