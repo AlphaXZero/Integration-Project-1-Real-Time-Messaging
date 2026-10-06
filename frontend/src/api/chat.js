@@ -44,3 +44,20 @@ export async function sendMessage(conversationId, content) {
 
   return response.json();
 }
+
+export async function createConversation(usernames) {
+  const response = await fetch(`${BASE_URL}/conversations/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("access")}`,
+    },
+    body: JSON.stringify({ participant_usernames: usernames }),
+  });
+
+  if (!response.ok) {
+    throw await response.json();
+  }
+
+  return response.json();
+}
