@@ -1,9 +1,7 @@
-const BASE_URL = "http://localhost:8000/api";
-const WS_URL = "ws://localhost:8000/ws/chat/";
-
+import { API_URL, WS_URL } from "./config";
 
 export async function getConversations() {
-  const response = await fetch(`${BASE_URL}/conversations/`, {
+  const response = await fetch(`${API_URL}/conversations/`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("access")}`,
     },
@@ -17,7 +15,7 @@ export async function getConversations() {
 }
 
 export async function getMessages(conversationId) {
-  const response = await fetch(`${BASE_URL}/conversations/${conversationId}/messages/`, {
+  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("access")}`,
     },
@@ -31,7 +29,7 @@ export async function getMessages(conversationId) {
 }
 
 export async function sendMessage(conversationId, content) {
-  const response = await fetch(`${BASE_URL}/conversations/${conversationId}/messages/`, {
+  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -56,8 +54,9 @@ export function connectChat(onMessage) {
 
   return ws;
 }
+
 export async function createConversation(usernames) {
-  const response = await fetch(`${BASE_URL}/conversations/`, {
+  const response = await fetch(`${API_URL}/conversations/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
