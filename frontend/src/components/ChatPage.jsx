@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentUserId } from "../api/auth";
-import { getConversations, getMessages, sendMessage } from "../api/chat";
+import { getConversations, getMessages, sendMessage, connectChat } from "../api/chat";
+
+function addMessage(list, message) {
+  if (list.some((m) => m.id === message.id)) return list;
+  return [...list, message];
+}
+
+function conversationName(conversation, currentUserId) {
+  const others = conversation.participants.filter((p) => p.id !== currentUserId);
+  if (others.length === 0) return "Moi";
+  return others.map((p) => p.username).join(", ");
+}
 
 function formatTime(date) {
   return new Date(date).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
@@ -14,6 +25,8 @@ function ChatPage() {
   const [newMessage, setNewMessage] = useState("");
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
+  const [unread, setUnread] = useState([]);
+  const selectedIdRef = useRef(null);
 
   const handleError = (err) => {
     if (err.code === "token_not_valid") {
@@ -28,6 +41,24 @@ function ChatPage() {
       .then((data) => setConversations(data))
       .catch(handleError);
   }, []);
+
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    const ws = connectChat((message) => {
+      if (message.conversation === selectedIdRef.current) {
+        setMessages((prev) => addMessage(prev, message));
+      } else {
+        setUnread((prev) => (prev.includes(message.conversation) ? prev : [...prev, message.conversation]));
+      }
+    });
+
+    return () => ws.close();
+  }, []);
+
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -44,7 +75,9 @@ function ChatPage() {
   const selectConversation = (id) => {
     setMessages([]);
     setSelectedId(id);
+    setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
+  const selectedConversation = conversations.find((c) => c.id === selectedId);
 
   const handleSend = (e) => {
     e.preventDefault();
@@ -52,7 +85,7 @@ function ChatPage() {
 
     sendMessage(selectedId, newMessage)
       .then((created) => {
-        setMessages([...messages, created]);
+        setMessages((prev) => addMessage(prev, created));
         setNewMessage("");
       })
       .catch(handleError);
@@ -75,8 +108,15 @@ function ChatPage() {
                 className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
                   }`}
               >
-                <p className="font-semibold text-ink">Conversation {conversation.id}</p>
-                <p className="text-xs text-mist">Participants : {conversation.participants.join(", ")}</p>
+                <p className="flex items-center gap-2 font-semibold text-ink">
+                  {conversationName(conversation, currentUserId)}
+                  {unread.includes(conversation.id) && (
+                    <span className="h-2 w-2 rounded-full bg-gold" aria-label="Nouveaux messages" />
+                  )}
+                </p>
+                <p className="text-xs text-mist">
+                  Participants : {conversation.participants.map((p) => p.username).join(", ")}
+                </p>
               </button>
             </li>
           ))}
@@ -102,7 +142,9 @@ function ChatPage() {
               >
                 ←
               </button>
-              <h2 className="font-semibold text-ink">Conversation {selectedId}</h2>
+              <h2 className="font-semibold text-ink">
+                {selectedConversation ? conversationName(selectedConversation, currentUserId) : ""}
+              </h2>
             </div>
 
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

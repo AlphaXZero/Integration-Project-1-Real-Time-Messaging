@@ -1,4 +1,6 @@
 const BASE_URL = "http://localhost:8000/api";
+const WS_URL = "ws://localhost:8000/ws/chat/";
+
 
 export async function getConversations() {
   const response = await fetch(`${BASE_URL}/conversations/`, {
@@ -43,4 +45,14 @@ export async function sendMessage(conversationId, content) {
   }
 
   return response.json();
+}
+
+export function connectChat(onMessage) {
+  const ws = new WebSocket(`${WS_URL}?token=${localStorage.getItem("access")}`);
+
+  ws.onmessage = (event) => {
+    onMessage(JSON.parse(event.data));
+  };
+
+  return ws;
 }
