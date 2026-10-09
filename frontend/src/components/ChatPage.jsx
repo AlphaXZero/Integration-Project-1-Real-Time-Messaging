@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentUserId } from "../api/auth";
-import { getConversations, getMessages, sendMessage, connectChat } from "../api/chat";
+import { getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
 
 function addMessage(list, message) {
   if (list.some((m) => m.id === message.id)) return list;
@@ -24,6 +24,8 @@ function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [error, setError] = useState(null);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [participantInput, setParticipantInput] = useState("");
   const messagesEndRef = useRef(null);
   const [unread, setUnread] = useState([]);
   const selectedIdRef = useRef(null);
@@ -79,6 +81,11 @@ function ChatPage() {
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
 
+  const getTitle = (conversation) => {
+    const others = conversation.participants.filter((p) => p.id !== currentUserId);
+    return others.length > 0 ? others.map((p) => p.username).join(", ") : "Moi";
+  };
+
   const handleSend = (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -91,13 +98,75 @@ function ChatPage() {
       .catch(handleError);
   };
 
+  const handleCreate = (e) => {
+    e.preventDefault();
+
+    const usernames = participantInput
+      .split(",")
+      .map((value) => value.trim())
+      .filter((name) => name !== "");
+
+    if (usernames.length === 0) {
+      setError("Indique au moins un nom d'utilisateur.");
+      return;
+    }
+
+    createConversation(usernames)
+      .then((created) => {
+        setConversations([...conversations, created]);
+        setParticipantInput("");
+        setShowNewForm(false);
+        setError(null);
+        selectConversation(created.id);
+      })
+      .catch((err) => {
+        if (err.participant_usernames) {
+          setError("Un des utilisateurs n'existe pas.");
+        } else {
+          handleError(err);
+        }
+      });
+  };
+
   return (
     <div className="flex h-[calc(100dvh-7rem)] w-full max-w-6xl overflow-hidden rounded-xl border border-night-border bg-night-card">
       <aside
         className={`${selectedId !== null ? "hidden" : "flex"} w-full flex-col border-r border-night-border md:flex md:w-72`}
       >
-        <div className="border-b border-night-border px-4 py-3">
-          <h1 className="text-lg font-bold text-gold">Conversations</h1>
+        <div className="border-b border-night-border px-4">
+          <div className="flex h-14 items-center justify-between">
+            <h1 className="text-lg font-bold text-gold">Conversations</h1>
+            <button
+              type="button"
+              onClick={() => setShowNewForm(!showNewForm)}
+              aria-label={showNewForm ? "Annuler" : "Nouvelle conversation"}
+              className="cursor-pointer rounded-md px-2 text-xl font-bold text-mist hover:bg-night-bg hover:text-ink"
+            >
+              {showNewForm ? "×" : "+"}
+            </button>
+          </div>
+
+          {showNewForm && (
+            <form onSubmit={handleCreate} className="flex flex-col gap-2 pb-3">
+              <label htmlFor="participants" className="text-xs font-semibold text-mist">
+                Noms des participants (séparés par des virgules)
+              </label>
+              <input
+                id="participants"
+                type="text"
+                value={participantInput}
+                onChange={(e) => setParticipantInput(e.target.value)}
+                placeholder="bob, charlie"
+                className="rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover"
+              >
+                Créer
+              </button>
+            </form>
+          )}
         </div>
 
         <ul className="flex-1 overflow-y-auto">
@@ -105,8 +174,9 @@ function ChatPage() {
             <li key={conversation.id}>
               <button
                 onClick={() => selectConversation(conversation.id)}
-                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
-                  }`}
+                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
+                  conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
+                }`}
               >
                 <p className="flex items-center gap-2 font-semibold text-ink">
                   {conversationName(conversation, currentUserId)}
@@ -115,7 +185,9 @@ function ChatPage() {
                   )}
                 </p>
                 <p className="text-xs text-mist">
-                  Participants : {conversation.participants.map((p) => p.username).join(", ")}
+                     {conversation.participants.length > 2
+                        ? `Groupe · ${conversation.participants.length} membres`
+                        : "Conversation privée"}
                 </p>
               </button>
             </li>
@@ -134,7 +206,7 @@ function ChatPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 border-b border-night-border px-4 py-3">
+            <div className="flex h-14 items-center gap-3 border-b border-night-border px-4">
               <button
                 onClick={() => setSelectedId(null)}
                 aria-label="Retour aux conversations"
@@ -163,8 +235,9 @@ function ChatPage() {
                       <span className="mb-1 text-xs font-semibold text-gold">{message.author_name}</span>
                     )}
                     <p
-                      className={`rounded-2xl px-4 py-2 text-sm ${isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
-                        }`}
+                      className={`rounded-2xl px-4 py-2 text-sm ${
+                        isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
+                      }`}
                     >
                       {message.content}
                     </p>
