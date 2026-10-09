@@ -1,19 +1,10 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions
+
 from .models import Conversation, Message
 from .serializers import ConversationSerializer, MessageSerializer
-from django.shortcuts import get_object_or_404
-
-
-class ConversationListView(generics.ListCreateAPIView):
-    serializer_class = ConversationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return Conversation.objects.filter(participants=self.request.user)
-
-    def perform_create(self, serializer):
-        new_list = serializer.validated_data["participants"] + [self.request.user]
-        serializer.save(participants=new_list)
 
 
 class MessageListView(generics.ListCreateAPIView):
@@ -34,3 +25,13 @@ class MessageListView(generics.ListCreateAPIView):
             participants=self.request.user,
         )
         serializer.save(author=self.request.user, conversation=conversation)
+
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {
+                    "type": "chat.message",
+                    "message": serializer.data,
+                },
+            )
