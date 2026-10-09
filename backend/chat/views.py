@@ -2,6 +2,8 @@ from rest_framework import generics, permissions
 from .models import Conversation, Message
 from .serializers import ConversationSerializer, MessageSerializer
 from django.shortcuts import get_object_or_404
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 class ConversationListView(generics.ListCreateAPIView):
@@ -34,3 +36,13 @@ class MessageListView(generics.ListCreateAPIView):
             participants=self.request.user,
         )
         serializer.save(author=self.request.user, conversation=conversation)
+
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {
+                    "type": "chat.message",
+                    "message": serializer.data,
+                },
+            )
