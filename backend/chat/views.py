@@ -15,7 +15,14 @@ class ConversationListView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         new_list = serializer.validated_data["participants"] + [self.request.user]
-        serializer.save(participants=new_list)
+        conversation = serializer.save(participants=new_list)
+
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.created", "conversation": serializer.data},
+            )
 
 
 class MessageListView(generics.ListCreateAPIView):
