@@ -50,11 +50,18 @@ function ChatPage() {
   }, [selectedId]);
 
   useEffect(() => {
-    const ws = connectChat((message) => {
-      if (message.conversation === selectedIdRef.current) {
-        setMessages((prev) => addMessage(prev, message));
-      } else {
-        setUnread((prev) => (prev.includes(message.conversation) ? prev : [...prev, message.conversation]));
+    const ws = connectChat((event) => {
+      if (event.type === "message") {
+        const message = event.data;
+        if (message.conversation === selectedIdRef.current) {
+          setMessages((prev) => addMessage(prev, message));
+        } else {
+          setUnread((prev) => (prev.includes(message.conversation) ? prev : [...prev, message.conversation]));
+        }
+      }
+
+      if (event.type === "conversation") {
+        setConversations((prev) => addMessage(prev, event.data));
       }
     });
 
@@ -113,7 +120,7 @@ function ChatPage() {
 
     createConversation(usernames)
       .then((created) => {
-        setConversations([...conversations, created]);
+        setConversations((prev) => addMessage(prev, created));
         setParticipantInput("");
         setShowNewForm(false);
         setError(null);
@@ -174,9 +181,8 @@ function ChatPage() {
             <li key={conversation.id}>
               <button
                 onClick={() => selectConversation(conversation.id)}
-                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
-                  conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
-                }`}
+                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
+                  }`}
               >
                 <p className="flex items-center gap-2 font-semibold text-ink">
                   {conversationName(conversation, currentUserId)}
@@ -185,9 +191,9 @@ function ChatPage() {
                   )}
                 </p>
                 <p className="text-xs text-mist">
-                     {conversation.participants.length > 2
-                        ? `Groupe · ${conversation.participants.length} membres`
-                        : "Conversation privée"}
+                  {conversation.participants.length > 2
+                    ? `Groupe · ${conversation.participants.length} membres`
+                    : "Conversation privée"}
                 </p>
               </button>
             </li>
@@ -235,9 +241,8 @@ function ChatPage() {
                       <span className="mb-1 text-xs font-semibold text-gold">{message.author_name}</span>
                     )}
                     <p
-                      className={`rounded-2xl px-4 py-2 text-sm ${
-                        isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
-                      }`}
+                      className={`rounded-2xl px-4 py-2 text-sm ${isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
+                        }`}
                     >
                       {message.content}
                     </p>
