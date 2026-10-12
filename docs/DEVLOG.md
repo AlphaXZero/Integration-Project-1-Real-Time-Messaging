@@ -30,8 +30,8 @@ git checkout -b feature/my-feature
 ### Documentation
 - `README.md`: project overview, tech stack, how to run it.
 - `docs/TODO.md`: backlog (Important / Nice to have).
-- `docs/LEARNING.md`: this file.
-- `docs/Project_specifications.md` and `docs/class_diagram.puml`: original specs.
+- `docs/DEVLOG.md`: this file.
+- `docs/ProjectSpecifications.md` and `docs/ClassDiagram.puml`: original specs.
 
 ### Initialisation
 Backend:
@@ -74,6 +74,7 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
 ```
+Later, for deployment, this list is read from an environment variable (`DJANGO_CORS_ALLOWED_ORIGINS`), with `http://localhost:5173` as the default in development.
 
 ---
 
@@ -204,7 +205,7 @@ class Conversation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return ", ".join(user.username for user in self.participants.all())
+        return f"conversation {self.id} {''.join(user.username for user in self.participants.all())}"
 
 
 class Message(models.Model):
@@ -276,16 +277,17 @@ class MessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserSerializer(many=True, read_only=True)  # output
-    participant_ids = serializers.PrimaryKeyRelatedField(  # input
+    participant_usernames = serializers.SlugRelatedField(  # input
         many=True,
         queryset=User.objects.all(),
+        slug_field="username",
         write_only=True,
         source="participants",
     )
 
     class Meta:
         model = Conversation
-        fields = ["id", "participants", "participant_ids", "created_at"]
+        fields = ["id", "participants", "participant_usernames", "created_at"]
 ```
 
 What each part does:
@@ -294,8 +296,9 @@ What each part does:
 - **`UserSerializer`** inside `ConversationSerializer`: participants are returned as `{id, username}` instead of plain ids, so the frontend can show names.
 - **Reading vs writing**: a nested serializer can only be read. So there are two fields:
   - `participants` (read): list of `{id, username}`
-  - `participant_ids` (write): list of ids sent when creating a conversation. Unknown ids → 400.
-  - `source="participants"` puts the ids in `validated_data["participants"]`.
+  - `participant_usernames` (write): list of **usernames** sent when creating a conversation. `SlugRelatedField` finds each user by its `username` (`slug_field`). Unknown username → 400.
+  - `source="participants"` puts the users found in `validated_data["participants"]`.
+- **Why usernames and not ids**: at first the client sent ids (`participant_ids`). But to start a conversation with someone new, the frontend doesn't know their id, only their name. With usernames, the person just types a name.
 
 ### Views (`chat/views.py`)
 ```python
@@ -314,8 +317,8 @@ class ConversationListView(generics.ListCreateAPIView):
         return Conversation.objects.filter(participants=self.request.user)
 
     def perform_create(self, serializer):
-        participants = serializer.validated_data["participants"] + [self.request.user]
-        serializer.save(participants=participants)
+        new_list = serializer.validated_data["participants"] + [self.request.user]
+        serializer.save(participants=new_list)
 
 
 class MessageListView(generics.ListCreateAPIView):
@@ -323,8 +326,9 @@ class MessageListView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        conversation_id = self.kwargs["conversation_id"]
         return Message.objects.filter(
-            conversation_id=self.kwargs["conversation_id"],
+            conversation_id=conversation_id,
             conversation__participants=self.request.user,
         ).order_by("created_at")
 
@@ -363,11 +367,11 @@ and `path("api/", include("chat.urls"))` in `config/urls.py`.
 # list my conversations
 curl -H "Authorization: Bearer <token>" http://localhost:8000/api/conversations/
 
-# create a conversation with user 2
+# create a conversation with valentin
 curl -X POST http://localhost:8000/api/conversations/ \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"participant_ids": [2]}'
+  -d '{"participant_usernames": ["valentin"]}'
 
 # send a message
 curl -X POST http://localhost:8000/api/conversations/1/messages/ \
@@ -387,14 +391,106 @@ Expected results:
 
 ---
 
-## 7. Frontend: calling the API
+## 7. Backend: automated tests and CI
+
+### Why
+Testing by hand with `curl` works once, but it has to be redone after every change. Automated tests check the rules every time, in a few seconds.
+
+### Tests (`chat/tests.py`)
+Django creates an **empty test database** for each run, so the tests never touch the real data.
+
+```python
+from django.contrib.auth.models import User
+from rest_framework import status
+from rest_framework.test import APITestCase
+
+from .models import Conversation, Message
+
+
+class MessageListViewTest(APITestCase):
+    def setUp(self):
+        self.test_user = User.objects.create_user(
+            username="TestUser", password="TestUserPassword1"
+        )
+        self.test_user_outsider = User.objects.create_user(
+            username="TestOutsider", password="TestOutPassword1"
+        )
+        self.conv = Conversation.objects.create()
+        self.conv.participants.add(self.test_user)
+        self.message = Message.objects.create(
+            author=self.test_user, conversation=self.conv, content="test message"
+        )
+
+    def test_participant_can_read_messages(self):
+        self.client.force_authenticate(user=self.test_user)
+        response = self.client.get(f"/api/conversations/{self.conv.id}/messages/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["content"], self.message.content)
+
+    def test_non_participant_cannot_read_messages(self):
+        self.client.force_authenticate(user=self.test_user_outsider)
+        response = self.client.get(f"/api/conversations/{self.conv.id}/messages/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_unauthenticated_user_cannot_read_messages(self):
+        response = self.client.get(f"/api/conversations/{self.conv.id}/messages/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+```
+`ConversationListViewTest` checks the same 3 cases for `GET /api/conversations/`.
+
+- **`setUp`**: runs before **each** test, to create fresh data. Values are stored on `self` to use them in the tests.
+- **`force_authenticate`**: logs the user in without needing a real token.
+- **One test = one rule**: participant can read, outsider gets nothing, no login → 401.
+- A test method must start with `test_`, otherwise Django ignores it.
+
+Run them:
+```bash
+uv run manage.py test
+```
+
+### CI (`.github/workflows/ci.yml`)
+**CI** (Continuous Integration): GitHub runs the tests automatically on every Pull Request to `develop` or `main`. A PR that breaks something shows a red cross before it is merged.
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install dependencies
+        run: uv sync
+      - name: Run tests
+        run: uv run manage.py test
+```
+- `on: pull_request`: when it runs.
+- `working-directory: backend`: the commands run inside `backend/`.
+- Each step is a command GitHub runs on a fresh machine: get the code, install uv, install the dependencies, run the tests.
+
+A `frontend` job (lint + build) was added later in the same file by Valentin.
+
+---
+
+## 8. Frontend: calling the API
 
 `frontend/src/api/chat.js`. Every request sends the token in the header:
 ```javascript
-const BASE_URL = "http://localhost:8000/api";
+import { API_URL, WS_URL } from "./config";
 
 export async function getConversations() {
-  const response = await fetch(`${BASE_URL}/conversations/`, {
+  const response = await fetch(`${API_URL}/conversations/`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("access")}`,
     },
@@ -407,7 +503,7 @@ export async function getConversations() {
 }
 
 export async function getMessages(conversationId) {
-  const response = await fetch(`${BASE_URL}/conversations/${conversationId}/messages/`, {
+  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("access")}`,
     },
@@ -420,7 +516,7 @@ export async function getMessages(conversationId) {
 }
 
 export async function sendMessage(conversationId, content) {
-  const response = await fetch(`${BASE_URL}/conversations/${conversationId}/messages/`, {
+  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -435,8 +531,10 @@ export async function sendMessage(conversationId, content) {
   return response.json();
 }
 ```
+`API_URL` and `WS_URL` come from `api/config.js` (written by Valentin for the deployment): `http://localhost:8000/api` in development, `/api` on the server.
+
 - A POST needs `method: "POST"`, the `Content-Type: application/json` header, and a `body` turned into a string with `JSON.stringify`.
-- URLs with variables use backticks: `` `${BASE_URL}/...` ``.
+- URLs with variables use backticks: `` `${API_URL}/...` ``.
 
 What the API returns:
 ```javascript
@@ -451,7 +549,7 @@ What the API returns:
 
 ---
 
-## 8. Real-time messages (WebSocket)
+## 9. Real-time messages (WebSocket)
 
 ### Why
 With HTTP, the server can only answer requests. When Marie sends a message, Valentin doesn't see it until his page asks for the messages again. A **WebSocket** keeps a connection open, so the server can **push** the message to Valentin immediately.
@@ -611,18 +709,21 @@ Without a token, or with a fake one, the connection is closed.
 
 ---
 
-## 9. Frontend: real-time chat
+## 10. Frontend: real-time chat
 
 `frontend/src/api/chat.js`:
 ```javascript
-const WS_URL = "ws://localhost:8000/ws/chat/";
-
 export function connectChat(onMessage) {
   const ws = new WebSocket(`${WS_URL}?token=${localStorage.getItem("access")}`);
-  ws.onmessage = (event) => onMessage(JSON.parse(event.data));
+
+  ws.onmessage = (event) => {
+    onMessage(JSON.parse(event.data));
+  };
+
   return ws;
 }
 ```
+`WS_URL` comes from `api/config.js`: `ws://localhost:8000/ws/chat/` in development, `wss://<site>/ws/chat/` on the server.
 
 In `ChatPage.jsx`, the connection is opened once when the page loads, and closed when leaving:
 ```javascript
@@ -647,7 +748,9 @@ useEffect(() => {
 
 ## Still to do
 - Password strength check on registration + tests for `register`.
-- `GET /api/users/` to choose people when creating a conversation.
+- Tests for the `POST` endpoints (send a message, create a conversation).
 - Redis for the channel layer (production).
-- `.env` for secrets (`SECRET_KEY`), `DEBUG` off in production.
 - PostgreSQL at deployment (SQLite in development).
+- Nice to have: `GET /api/users/` for username autocompletion.
+
+Done by Valentin in the meantime: secrets and settings read from a `.env` file (`DJANGO_SECRET_KEY`, `DJANGO_DEBUG`...), Nginx + systemd configuration for the VPS.
