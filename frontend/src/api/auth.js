@@ -30,12 +30,14 @@ export async function login(username, password) {
   const data = await response.json();
   localStorage.setItem("access", data.access);
   localStorage.setItem("refresh", data.refresh);
+  localStorage.setItem("username", username);
   return data;
 }
 
 export function logout() {
   localStorage.removeItem("access");
   localStorage.removeItem("refresh");
+  localStorage.removeItem("username");
 }
 
 export function isLoggedIn() {
@@ -48,4 +50,8 @@ export function getCurrentUserId() {
 
   const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
   return Number(JSON.parse(atob(payload)).user_id);
+}
+
+export function getCurrentUsername() {
+  return localStorage.getItem("username");
 }
