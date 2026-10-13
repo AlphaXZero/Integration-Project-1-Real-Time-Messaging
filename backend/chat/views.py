@@ -71,4 +71,12 @@ class AddParticipantView(APIView):
         user = get_object_or_404(User, username=username)
         conversation.participants.add(user.id)
 
-        return Response(ConversationSerializer(conversation).data)
+        data = ConversationSerializer(conversation).data
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.updated", "conversation": data},
+            )
+
+        return Response(data)
