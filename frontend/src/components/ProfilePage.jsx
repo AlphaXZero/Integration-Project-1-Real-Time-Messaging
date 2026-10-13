@@ -1,13 +1,8 @@
-import { Navigate, useNavigate } from "react-router";
-import { isLoggedIn, logout, getCurrentUsername, getCurrentUserId } from "../api/auth";
+import { useNavigate } from "react-router";
+import { logout, getCurrentUsername, getCurrentUserId } from "../api/auth";
 
 function ProfilePage() {
   const navigate = useNavigate();
-
-  if (!isLoggedIn()) {
-    return <Navigate to="/login" />;
-  }
-
   const username = getCurrentUsername();
   const userId = getCurrentUserId();
   const initial = username ? username.charAt(0).toUpperCase() : "?";
