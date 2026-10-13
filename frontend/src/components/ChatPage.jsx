@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentUserId, getCurrentUsername } from "../api/auth";
-import { getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
+import {
+  getConversations,
+  getMessages,
+  sendMessage,
+  connectChat,
+  createConversation,
+} from "../api/chat";
 
 function addMessage(list, message) {
   if (list.some((m) => m.id === message.id)) return list;
@@ -8,13 +14,18 @@ function addMessage(list, message) {
 }
 
 function conversationName(conversation, currentUserId) {
-  const others = conversation.participants.filter((p) => p.id !== currentUserId);
+  const others = conversation.participants.filter(
+    (p) => p.id !== currentUserId,
+  );
   if (others.length === 0) return "Moi";
   return others.map((p) => p.username).join(", ");
 }
 
 function formatTime(date) {
-  return new Date(date).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
+  return new Date(date).toLocaleTimeString("fr-BE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function ChatPage() {
@@ -29,6 +40,7 @@ function ChatPage() {
   const messagesEndRef = useRef(null);
   const [unread, setUnread] = useState([]);
   const selectedIdRef = useRef(null);
+  const [sending, setSending] = useState(false);
 
   const handleError = (err) => {
     if (err.code === "token_not_valid") {
@@ -44,7 +56,6 @@ function ChatPage() {
       .catch(handleError);
   }, []);
 
-
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
@@ -56,7 +67,11 @@ function ChatPage() {
         if (message.conversation === selectedIdRef.current) {
           setMessages((prev) => addMessage(prev, message));
         } else {
-          setUnread((prev) => (prev.includes(message.conversation) ? prev : [...prev, message.conversation]));
+          setUnread((prev) =>
+            prev.includes(message.conversation)
+              ? prev
+              : [...prev, message.conversation],
+          );
         }
       }
 
@@ -67,7 +82,6 @@ function ChatPage() {
 
     return () => ws.close();
   }, []);
-
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -90,14 +104,16 @@ function ChatPage() {
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || sending) return;
 
+    setSending(true);
     sendMessage(selectedId, newMessage)
       .then((created) => {
         setMessages((prev) => addMessage(prev, created));
         setNewMessage("");
       })
-      .catch(handleError);
+      .catch(handleError)
+      .finally(() => setSending(false));
   };
 
   const handleCreate = (e) => {
@@ -151,7 +167,10 @@ function ChatPage() {
 
           {showNewForm && (
             <form onSubmit={handleCreate} className="flex flex-col gap-2 pb-3">
-              <label htmlFor="participants" className="text-xs font-semibold text-mist">
+              <label
+                htmlFor="participants"
+                className="text-xs font-semibold text-mist"
+              >
                 Noms des participants (séparés par des virgules)
               </label>
               <input
@@ -165,7 +184,7 @@ function ChatPage() {
               <button
                 type="submit"
                 disabled={participantInput.trim() === ""}
-                className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover"
+                className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Créer
               </button>
@@ -178,13 +197,19 @@ function ChatPage() {
             <li key={conversation.id}>
               <button
                 onClick={() => selectConversation(conversation.id)}
-                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId ? "border-forest bg-night-bg" : "border-transparent"
-                  }`}
+                className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
+                  conversation.id === selectedId
+                    ? "border-forest bg-night-bg"
+                    : "border-transparent"
+                }`}
               >
                 <p className="flex items-center gap-2 font-semibold text-ink">
                   {conversationName(conversation, currentUserId)}
                   {unread.includes(conversation.id) && (
-                    <span className="h-2 w-2 rounded-full bg-gold" aria-label="Nouveaux messages" />
+                    <span
+                      className="h-2 w-2 rounded-full bg-gold"
+                      aria-label="Nouveaux messages"
+                    />
                   )}
                 </p>
                 <p className="text-xs text-mist">
@@ -198,9 +223,13 @@ function ChatPage() {
         </ul>
       </aside>
 
-      <section className={`${selectedId !== null ? "flex" : "hidden"} min-w-0 flex-1 flex-col md:flex`}>
+      <section
+        className={`${selectedId !== null ? "flex" : "hidden"} min-w-0 flex-1 flex-col md:flex`}
+      >
         {error && (
-          <p className="border-b border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-300">{error}</p>
+          <p className="border-b border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-300">
+            {error}
+          </p>
         )}
 
         {selectedId === null ? (
@@ -218,13 +247,17 @@ function ChatPage() {
                 ←
               </button>
               <h2 className="font-semibold text-ink">
-                {selectedConversation ? conversationName(selectedConversation, currentUserId) : ""}
+                {selectedConversation
+                  ? conversationName(selectedConversation, currentUserId)
+                  : ""}
               </h2>
             </div>
 
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
               {messages.length === 0 && (
-                <p className="m-auto text-sm text-mist">Aucun message pour l'instant.</p>
+                <p className="m-auto text-sm text-mist">
+                  Aucun message pour l'instant.
+                </p>
               )}
 
               {messages.map((message) => {
@@ -235,22 +268,32 @@ function ChatPage() {
                     className={`flex max-w-[75%] flex-col ${isMine ? "self-end items-end" : "self-start items-start"}`}
                   >
                     {!isMine && (
-                      <span className="mb-1 text-xs font-semibold text-gold">{message.author_name}</span>
+                      <span className="mb-1 text-xs font-semibold text-gold">
+                        {message.author_name}
+                      </span>
                     )}
                     <p
-                      className={`rounded-2xl px-4 py-2 text-sm ${isMine ? "rounded-br-sm bg-forest text-white" : "rounded-bl-sm bg-night-bg text-ink"
-                        }`}
+                      className={`rounded-2xl px-4 py-2 text-sm ${
+                        isMine
+                          ? "rounded-br-sm bg-forest text-white"
+                          : "rounded-bl-sm bg-night-bg text-ink"
+                      }`}
                     >
                       {message.content}
                     </p>
-                    <span className="mt-1 text-[11px] text-mist">{formatTime(message.created_at)}</span>
+                    <span className="mt-1 text-[11px] text-mist">
+                      {formatTime(message.created_at)}
+                    </span>
                   </div>
                 );
               })}
               <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSend} className="flex gap-2 border-t border-night-border p-3">
+            <form
+              onSubmit={handleSend}
+              className="flex gap-2 border-t border-night-border p-3"
+            >
               <input
                 type="text"
                 value={newMessage}
@@ -261,7 +304,8 @@ function ChatPage() {
               />
               <button
                 type="submit"
-                className="cursor-pointer rounded-md bg-forest px-5 font-semibold text-white transition hover:bg-forest-hover"
+                disabled={sending}
+                className="cursor-pointer rounded-md bg-forest px-5 font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Envoyer
               </button>
