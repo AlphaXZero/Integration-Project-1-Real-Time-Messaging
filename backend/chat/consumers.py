@@ -50,3 +50,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
         )
+
+    async def conversation_updated(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "conversation",
+                    "data": event["conversation"],
+                }
+            )
+        )
