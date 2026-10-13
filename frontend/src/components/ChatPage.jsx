@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentUserId } from "../api/auth";
+import { getCurrentUserId, getCurrentUsername } from "../api/auth";
 import { addParticipant, getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
 
 function upsertItem(list, item) {
