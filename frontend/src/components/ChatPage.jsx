@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentUserId } from "../api/auth";
+import { getCurrentUserId, getCurrentUsername } from "../api/auth";
 import { getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
 
 function addMessage(list, message) {
@@ -88,11 +88,6 @@ function ChatPage() {
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
 
-  const getTitle = (conversation) => {
-    const others = conversation.participants.filter((p) => p.id !== currentUserId);
-    return others.length > 0 ? others.map((p) => p.username).join(", ") : "Moi";
-  };
-
   const handleSend = (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -111,7 +106,8 @@ function ChatPage() {
     const usernames = participantInput
       .split(",")
       .map((value) => value.trim())
-      .filter((name) => name !== "");
+      .filter((name) => name !== "")
+      .filter((name) => name !== currentUsername);
 
     if (usernames.length === 0) {
       setError("Indique au moins un nom d'utilisateur.");
@@ -168,6 +164,7 @@ function ChatPage() {
               />
               <button
                 type="submit"
+                disabled={participantInput.trim() === ""}
                 className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover"
               >
                 Créer

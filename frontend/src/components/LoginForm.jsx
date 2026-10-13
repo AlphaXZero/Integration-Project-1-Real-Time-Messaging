@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { register } from "../api/auth";
 import { login } from "../api/auth";
 import { Link, useNavigate } from "react-router";
 
