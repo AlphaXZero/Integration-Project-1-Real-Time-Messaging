@@ -745,6 +745,241 @@ useEffect(() => {
   - `setMessages((prev) => ...)` always receives the up-to-date list.
 
 ---
+## 11. Backend: add a participant to a conversation
+
+### The endpoint
+`POST /api/conversations/<id>/participants/` with `{"username": "charlie"}` adds Charlie to an existing conversation (this is how a private conversation becomes a group).
+
+Rules:
+- only a **participant** of the conversation can add someone → otherwise 404
+- unknown username → 404
+- no `username` in the body → 400
+- adding someone who is already in the conversation does nothing (no error)
+
+### The view (`chat/views.py`)
+```python
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404
+from rest_framework import permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Conversation
+from .serializers import ConversationSerializer
+
+
+class AddParticipantView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, conversation_id):
+        conversation = get_object_or_404(
+            Conversation, id=conversation_id, participants=request.user
+        )
+
+        username = request.data.get("username")
+        if not username:
+            return Response({"username": "This field is required."}, status=400)
+
+        user = get_object_or_404(User, username=username)
+        conversation.participants.add(user.id)
+
+        return Response(ConversationSerializer(conversation).data)
+```
+
+- **`APIView`**: the basic DRF view. It is used here because this is an *action* on an existing object, not a list or a creation, so the generic views (`ListCreateAPIView`) don't fit. One method per HTTP verb: DRF calls `post()` for a POST request.
+- **`conversation_id`**: values from the URL (`<int:conversation_id>`) arrive directly as arguments of the method, with the same name. No need for `self.kwargs`.
+- **`request.user`**: the logged-in user (the one making the request). In an `APIView` method, `request` is an argument, so it's `request.user`, not `self.request.user`.
+- **`request.data.get("username")`**: the JSON body, already turned into a dictionary. `.get()` returns `None` if the key is missing, instead of crashing like `request.data["username"]` would.
+- **`.add()`**: adds a row in the join table of the ManyToMany. It accepts an object or its id, and does nothing if the link already exists.
+- **`Response(data, status=...)`**: the DRF response. Without `status`, it's 200.
+
+### How `get_object_or_404` works
+`get_object_or_404(Model, **filters)` fetches **one** object from the database, or stops the view with a **404** if it doesn't exist.
+
+```python
+conversation = get_object_or_404(
+    Conversation, id=conversation_id, participants=request.user
+)
+```
+does the same as:
+```python
+try:
+    conversation = Conversation.objects.get(
+        id=conversation_id, participants=request.user
+    )
+except Conversation.DoesNotExist:
+    raise Http404
+```
+
+- **First argument**: the model to search in (`Conversation`, `User`...). It works with any model.
+- **The other arguments**: filters, written exactly like in `.filter()` or `.get()` (`field=value`, `relation__field=value`...).
+- **All filters must match at the same time** (AND). Here: the conversation with this id **and** in which the logged-in user is a participant.
+- It's a **function imported from `django.shortcuts`**, not a method of `self`.
+- It must find **exactly one** object. If the filters match several, Django raises an error (`MultipleObjectsReturned`), so it's meant to be used with a unique field (`id`, `username`...).
+
+**Why the `participants=request.user` filter matters (security):**
+without it, anyone who guesses a conversation id could add themselves to it and read all its messages.
+
+**Why 404 and not 403 (forbidden):**
+for someone outside the conversation, "doesn't exist" and "not yours" give the same answer. A 403 would confirm that the conversation exists, which already leaks information.
+
+### URL (`chat/urls.py`)
+```python
+(
+    path(
+        "conversations/<int:conversation_id>/participants/",
+        AddParticipantView.as_view(),
+        name="add-participant",
+    ),
+)
+```
+
+### Testing
+```bash
+curl -X POST http://localhost:8000/api/conversations/1/participants/ \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "charlie"}'
+```
+- Participant + existing username → 200, the conversation with Charlie in `participants`
+- Not a participant of conversation 1 → 404
+- Unknown username → 404
+- Empty body → 400
+- No token → 401
+
+### Key learnings
+- `request.user` is **who makes the request**; the data sent by the client is in `request.data`.
+- `Conversation.participants` (the class) vs `conversation.participants` (this conversation): same mistake as `AsyncWebsocketConsumer.accept()` vs `self.accept()`. Methods that act on *one* object are called on the object, not on the class.
+- `get_object_or_404(User, id=username)` doesn't work: the filter must use the field that matches the value you have (`username=username`).
+
+### Real-time notification (added to `AddParticipantView`)
+After the addition, the updated conversation is sent to every participant, the new one included:
+```python
+        user = get_object_or_404(User, username=username)
+        conversation.participants.add(user.id)
+
+        data = ConversationSerializer(conversation).data
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.updated", "conversation": data},
+            )
+
+        return Response(data)
+```
+- `data` is computed once: it is used for the WebSocket **and** the HTTP response.
+- After `.add()`, `conversation.participants.all()` already contains the new participant, so they receive the event too.
+- The group name uses the **loop variable** (`participant.id`), not the added user (`user.id`): otherwise only the new participant would receive the event, once per participant.
+
+---
+
+## 12. Backend: real-time conversation events
+
+### The problem
+Only messages were sent through the WebSocket. When Alice created a conversation with Bob, or added Charlie to one, the others only saw it after refreshing the page.
+
+### The envelope
+The WebSocket now carries several kinds of events, so every event is wrapped with a label telling the frontend what it receives:
+```json
+{"type": "message", "data": {...the message...}}
+{"type": "conversation", "data": {...the conversation...}}
+```
+
+### Sending (views)
+Same loop as for messages, with a different `type`:
+
+| Where | `type` sent to the group | When |
+|---|---|---|
+| `MessageListView.perform_create` | `chat.message` | a message is sent |
+| `ConversationListView.perform_create` | `conversation.created` | a conversation is created |
+| `AddParticipantView.post` | `conversation.updated` | someone is added |
+
+`ConversationListView.perform_create`:
+```python
+    def perform_create(self, serializer):
+        new_list = serializer.validated_data["participants"] + [self.request.user]
+        conversation = serializer.save(participants=new_list)
+
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.created", "conversation": serializer.data},
+            )
+```
+`serializer.save()` returns the created object, which gives access to its participants.
+
+### Receiving (consumer)
+One method per event `type` (dots become underscores), each one wraps the data in the envelope:
+```python
+async def chat_message(self, event):
+    await self.send(text_data=json.dumps({"type": "message", "data": event["message"]}))
+
+
+async def conversation_created(self, event):
+    await self.send(
+        text_data=json.dumps({"type": "conversation", "data": event["conversation"]})
+    )
+
+
+async def conversation_updated(self, event):
+    await self.send(
+        text_data=json.dumps({"type": "conversation", "data": event["conversation"]})
+    )
+```
+This replaces the `chat_message` of section 9, which sent the message without an envelope.
+
+### Two different `type`s
+- The `type` of `group_send` (`"conversation.created"`) is an **address for Channels**: it says which consumer method to call. It never leaves the server.
+- The `type` of the envelope (`"conversation"`) is a **label for the frontend**: it travels to the browser and tells it what to do.
+
+`conversation.created` and `conversation.updated` both send the label `"conversation"`: for the frontend, both mean "here is the latest version of a conversation". It replaces it if it's already in the list, or adds it otherwise.
+
+### Testing (browser console)
+```javascript
+const ws = new WebSocket(`ws://localhost:8000/ws/chat/?token=${localStorage.getItem("access")}`);
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+```
+- send a message → `{type: "message", data: {...}}`
+- create a conversation or add someone → `{type: "conversation", data: {...}}`
+
+If a `type` has no matching method in the consumer, the server logs `No handler for message type ...`.
+
+### Key learnings
+- Changing the format of what the WebSocket sends breaks the frontend: the backend and frontend changes must be merged together.
+- A typo in the envelope label (`"converstaion"`) breaks nothing on the server but the frontend silently ignores the event: very hard to find later.
+
+---
+
+## 13. Backend: JWT token lifetime
+
+### The problem
+Users were disconnected after 5 minutes: without settings, SimpleJWT gives the `access` token a lifetime of **5 minutes** (and 1 day for the `refresh` token).
+
+### The fix (`config/settings.py`)
+```python
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=3),
+}
+```
+- `SIMPLE_JWT`: SimpleJWT's settings. Any missing key keeps its default value.
+- `timedelta`: a **duration** (not a date). The arguments are plural: `minutes`, `hours`, `days`. `timedelta(day=3)` raises a `TypeError`.
+- **access** (30 min): sent with every request, so it stays short. If it's stolen, it's only useful for a short time.
+- **refresh** (3 days): only used to get a new access token. This is what decides how long a user stays logged in without typing their password again.
+
+Tokens already given keep their old expiration date: log out and back in to test.
+
+Check the lifetime of the current token (browser console):
+```javascript
+const p = JSON.parse(atob(localStorage.getItem("access").split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+console.log((p.exp - p.iat) / 60, "minutes");
+```
+
+This only delays the problem: the real fix is on the frontend, which must use the `refresh` token to get a new `access` token automatically when it expires (done by Valentin).
 
 ## Still to do
 - Password strength check on registration + tests for `register`.

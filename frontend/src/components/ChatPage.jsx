@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentUserId, getCurrentUsername } from "../api/auth";
-import {
-  getConversations,
-  getMessages,
-  sendMessage,
-  connectChat,
-  createConversation,
-} from "../api/chat";
+import { getCurrentUserId } from "../api/auth";
+import { addParticipant, getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
+
+function upsertItem(list, item) {
+  if (list.some((x) => x.id === item.id)) {
+    return list.map((x) => (x.id === item.id ? item : x));
+  }
+  return [...list, item];
+}
 
 function addMessage(list, message) {
   if (list.some((m) => m.id === message.id)) return list;
   return [...list, message];
 }
+
 
 function conversationName(conversation, currentUserId) {
   const others = conversation.participants.filter(
@@ -40,6 +42,8 @@ function ChatPage() {
   const messagesEndRef = useRef(null);
   const [unread, setUnread] = useState([]);
   const selectedIdRef = useRef(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addInput, setAddInput] = useState("");
   const [sending, setSending] = useState(false);
 
   const handleError = (err) => {
@@ -76,7 +80,7 @@ function ChatPage() {
       }
 
       if (event.type === "conversation") {
-        setConversations((prev) => addMessage(prev, event.data));
+        setConversations((prev) => upsertItem(prev, event.data));
       }
     });
 
@@ -98,6 +102,8 @@ function ChatPage() {
   const selectConversation = (id) => {
     setMessages([]);
     setSelectedId(id);
+    setShowAddForm(false);
+    setAddInput("");
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
@@ -116,6 +122,26 @@ function ChatPage() {
       .finally(() => setSending(false));
   };
 
+  const handleAddParticipant = (e) => {
+    e.preventDefault();
+    const username = addInput.trim();
+    if (!username) return;
+
+    addParticipant(selectedId, username)
+      .then((updated) => {
+        setConversations((prev) => upsertItem(prev, updated));
+        setAddInput("");
+        setShowAddForm(false);
+        setError(null);
+      })
+      .catch((err) => {
+        if (err.code === "token_not_valid") {
+          handleError(err);
+        } else {
+          setError("Utilisateur introuvable.");
+        }
+      });
+  };
   const handleCreate = (e) => {
     e.preventDefault();
     const currentUsername = getCurrentUsername();
@@ -238,19 +264,47 @@ function ChatPage() {
           </div>
         ) : (
           <>
-            <div className="flex h-14 items-center gap-3 border-b border-night-border px-4">
-              <button
-                onClick={() => setSelectedId(null)}
-                aria-label="Retour aux conversations"
-                className="cursor-pointer text-mist hover:text-ink md:hidden"
-              >
-                ←
-              </button>
-              <h2 className="font-semibold text-ink">
-                {selectedConversation
-                  ? conversationName(selectedConversation, currentUserId)
-                  : ""}
-              </h2>
+            <div className="border-b border-night-border px-4">
+              <div className="flex h-14 items-center gap-3">
+                <button
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Retour aux conversations"
+                  className="cursor-pointer text-mist hover:text-ink md:hidden"
+                >
+                  ←
+                </button>
+                <h2 className="min-w-0 flex-1 truncate font-semibold text-ink">
+                  {selectedConversation ? conversationName(selectedConversation, currentUserId) : ""}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  aria-label={showAddForm ? "Annuler" : "Ajouter un participant"}
+                  title={showAddForm ? "Annuler" : "Ajouter un participant"}
+                  className="cursor-pointer rounded-md px-2 text-xl font-bold text-mist hover:bg-night-bg hover:text-ink"
+                >
+                  {showAddForm ? "×" : "+"}
+                </button>
+              </div>
+
+              {showAddForm && (
+                <form onSubmit={handleAddParticipant} className="flex gap-2 pb-3">
+                  <input
+                    type="text"
+                    value={addInput}
+                    onChange={(e) => setAddInput(e.target.value)}
+                    placeholder="Nom d'utilisateur à ajouter"
+                    aria-label="Nom d'utilisateur à ajouter"
+                    className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="cursor-pointer rounded-md bg-forest px-4 text-sm font-semibold text-white transition hover:bg-forest-hover"
+                  >
+                    Ajouter
+                  </button>
+                </form>
+              )}
             </div>
 
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

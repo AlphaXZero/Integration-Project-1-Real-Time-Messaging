@@ -71,3 +71,20 @@ export async function createConversation(usernames) {
 
   return response.json();
 }
+
+export async function addParticipant(conversationId, username) {
+  const response = await fetch(`${API_URL}/conversations/${conversationId}/participants/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("access")}`,
+    },
+    body: JSON.stringify({ username }),
+  });
+
+  if (!response.ok) {
+    throw await response.json();
+  }
+
+  return response.json();
+}
