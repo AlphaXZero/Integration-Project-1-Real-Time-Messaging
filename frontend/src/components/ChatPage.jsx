@@ -102,7 +102,7 @@ function ChatPage() {
 
   const handleCreate = (e) => {
     e.preventDefault();
-
+    const currentUsername = getCurrentUsername();
     const usernames = participantInput
       .split(",")
       .map((value) => value.trim())
