@@ -1,9 +1,11 @@
 from rest_framework import generics, permissions
-from .models import Conversation, Message
+from .models import Conversation, Message, User
 from .serializers import ConversationSerializer, MessageSerializer
 from django.shortcuts import get_object_or_404
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
 
 class ConversationListView(generics.ListCreateAPIView):
@@ -53,3 +55,20 @@ class MessageListView(generics.ListCreateAPIView):
                     "message": serializer.data,
                 },
             )
+
+
+class AddParticipantView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, conversation_id):
+        conversation = get_object_or_404(
+            Conversation, id=conversation_id, participants=request.user
+        )
+        username = request.data.get("username")
+        if not username:
+            return Response({"username": "This field is required."}, status=400)
+
+        user = get_object_or_404(User, username=username)
+        conversation.participants.add(user.id)
+
+        return Response(ConversationSerializer(conversation).data)
