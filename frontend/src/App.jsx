@@ -7,6 +7,7 @@ import TeamPage from "./components/TeamPage";
 import HomePage from "./components/HomePage";
 import ProfilePage from "./components/ProfilePage";
 import RequireAuth from "./components/RequireAuth";
+import PricingPage from "./components/PricingPage";
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="/chat" element={<RequireAuth><ChatPage /></RequireAuth>} />
           <Route path="/equipe" element={<TeamPage />} />
           <Route path="/profil" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+          <Route path="/tarifs" element={<PricingPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>
