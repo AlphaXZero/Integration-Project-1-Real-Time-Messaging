@@ -1,48 +1,33 @@
-import { API_URL, WS_URL } from "./config";
+import { WS_URL } from "./config";
+import { authFetch } from "./https";
 
-export async function getConversations() {
-  const response = await fetch(`${API_URL}/conversations/`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("access")}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw await response.json();
-  }
-
-  return response.json();
+export function getConversations() {
+  return authFetch("/conversations/");
 }
 
-export async function getMessages(conversationId) {
-  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("access")}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw await response.json();
-  }
-
-  return response.json();
+export function getMessages(conversationId) {
+  return authFetch(`/conversations/${conversationId}/messages/`);
 }
 
-export async function sendMessage(conversationId, content) {
-  const response = await fetch(`${API_URL}/conversations/${conversationId}/messages/`, {
+export function sendMessage(conversationId, content) {
+  return authFetch(`/conversations/${conversationId}/messages/`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("access")}`,
-    },
     body: JSON.stringify({ content }),
   });
+}
 
-  if (!response.ok) {
-    throw await response.json();
-  }
+export function createConversation(usernames) {
+  return authFetch("/conversations/", {
+    method: "POST",
+    body: JSON.stringify({ participant_usernames: usernames }),
+  });
+}
 
-  return response.json();
+export function addParticipant(conversationId, username) {
+  return authFetch(`/conversations/${conversationId}/participants/`, {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
 }
 
 export function connectChat(onMessage) {
@@ -53,38 +38,4 @@ export function connectChat(onMessage) {
   };
 
   return ws;
-}
-
-export async function createConversation(usernames) {
-  const response = await fetch(`${API_URL}/conversations/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("access")}`,
-    },
-    body: JSON.stringify({ participant_usernames: usernames }),
-  });
-
-  if (!response.ok) {
-    throw await response.json();
-  }
-
-  return response.json();
-}
-
-export async function addParticipant(conversationId, username) {
-  const response = await fetch(`${API_URL}/conversations/${conversationId}/participants/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("access")}`,
-    },
-    body: JSON.stringify({ username }),
-  });
-
-  if (!response.ok) {
-    throw await response.json();
-  }
-
-  return response.json();
 }
