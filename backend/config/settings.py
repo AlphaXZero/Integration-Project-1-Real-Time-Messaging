@@ -14,9 +14,16 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from datetime import timedelta
+
 
 def env_list(name, default=""):
-    return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
+    return [
+        value.strip()
+        for value in os.environ.get(name, default).split(",")
+        if value.strip()
+    ]
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -152,6 +159,11 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=3),
 }
 
 CHANNEL_LAYERS = {
