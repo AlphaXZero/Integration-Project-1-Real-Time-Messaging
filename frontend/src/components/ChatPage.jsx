@@ -92,27 +92,39 @@ function ChatPage() {
   }, [selectedId]);
 
   useEffect(() => {
-    const ws = connectChat((event) => {
-      if (event.type === "message") {
-        const message = event.data;
-        if (message.conversation === selectedIdRef.current) {
-          setMessages((prev) => addMessage(prev, message));
-        } else if (message.author !== currentUserId) {
-          setUnread((prev) =>
-            prev.includes(message.conversation)
-              ? prev
-              : [...prev, message.conversation],
-          );
-          showToast(message);
+    const disconnect = connectChat(
+      (event) => {
+        if (event.type === "message") {
+          const message = event.data;
+          if (message.conversation === selectedIdRef.current) {
+            setMessages((prev) => addMessage(prev, message));
+          } else if (message.author !== currentUserId) {
+            setUnread((prev) =>
+              prev.includes(message.conversation)
+                ? prev
+                : [...prev, message.conversation],
+            );
+            showToast(message);
+          }
         }
-      }
 
-      if (event.type === "conversation") {
-        setConversations((prev) => upsertItem(prev, event.data));
-      }
-    });
+        if (event.type === "conversation") {
+          setConversations((prev) => upsertItem(prev, event.data));
+        }
+      },
+      () => {
+        getConversations()
+          .then((data) => setConversations(data))
+          .catch(handleError);
+        if (selectedIdRef.current !== null) {
+          getMessages(selectedIdRef.current)
+            .then((data) => setMessages(data))
+            .catch(handleError);
+        }
+      },
+    );
 
-    return () => ws.close();
+    return disconnect;
   }, []);
 
   useEffect(() => {
