@@ -1,5 +1,5 @@
 import { WS_URL } from "./config";
-import { authFetch } from "./https";
+import { authFetch, expireSession, refreshAccess } from "./https";
 
 export function getConversations() {
   return authFetch("/conversations/");
@@ -30,12 +30,54 @@ export function addParticipant(conversationId, username) {
   });
 }
 
-export function connectChat(onMessage) {
-  const ws = new WebSocket(`${WS_URL}?token=${localStorage.getItem("access")}`);
+export function connectChat(onMessage, onReconnect) {
+  let ws = null;
+  let retries = 0;
+  let timer = null;
+  let stopped = false;
 
-  ws.onmessage = (event) => {
-    onMessage(JSON.parse(event.data));
+  const scheduleRetry = () => {
+    const delay = Math.min(1000 * 2 ** retries, 30000);
+    retries += 1;
+    timer = setTimeout(open, delay);
   };
 
-  return ws;
+  async function open() {
+    if (retries > 0) {
+      try {
+        const refreshed = await refreshAccess();
+        if (!refreshed) {
+          expireSession();
+          return;
+        }
+      } catch {
+        if (!stopped) scheduleRetry();
+        return;
+      }
+    }
+    if (stopped) return;
+
+    ws = new WebSocket(`${WS_URL}?token=${localStorage.getItem("access")}`);
+
+    ws.onopen = () => {
+      if (retries > 0) onReconnect?.();
+      retries = 0;
+    };
+
+    ws.onmessage = (event) => {
+      onMessage(JSON.parse(event.data));
+    };
+
+    ws.onclose = () => {
+      if (!stopped) scheduleRetry();
+    };
+  }
+
+  open();
+
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    ws?.close();
+  };
 }

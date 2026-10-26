@@ -57,17 +57,17 @@ Legend: **[B]** backend (GeorgéV) · **[F]** frontend (ValentinC) · **[D]** de
 ### Notifications (spec §2.1, acceptance scenario 7)
 - [ ] Persistent unread counter per conversation: `last_read_at` per participant (ManyToMany → `through=` model) + "mark as read" endpoint [B]
 - [ ] Show the unread counter on the conversation list [F]
-- [ ] Toast when a message arrives in a conversation that is not open [F]
+- [x] Toast when a message arrives in a conversation that is not open [F]
 
 ### Real time
-- [ ] Automatic WebSocket reconnection (with a fresh token) [F]
+- [x] Automatic WebSocket reconnection (with a fresh token) [F]
 - [ ] Redis as the channel layer in production [B] [D]
 
 ### Accounts
 - [ ] Access token lifetime (`SIMPLE_JWT`, 30 min) merged into `develop` [B]
 - [ ] Password strength check on registration (`validate_password`) [B]
 - [ ] Clear error message for each case (e.g. "add participant" shows "user not found" for every error) [F]
-- [ ] Redirect to `/login` when the session is expired [F]
+- [x] Redirect to `/login` when the session is expired [F]
 
 ### Tests (spec §8)
 - [ ] POST endpoints: send a message, create a conversation, add a participant (200/201, 400, 401, 404) [B]
