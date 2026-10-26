@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentUserId, getCurrentUsername } from "../api/auth";
 import { addParticipant, getConversations, getMessages, sendMessage, connectChat, createConversation } from "../api/chat";
+import Toast from "./Toast";
 
 function upsertItem(list, item) {
   if (list.some((x) => x.id === item.id)) {
@@ -45,6 +46,8 @@ function ChatPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addInput, setAddInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
 
   const handleError = (err) => {
     if (err.code === "token_not_valid") {
@@ -53,6 +56,19 @@ function ChatPage() {
       setError("Une erreur est survenue.");
     }
   };
+
+  const showToast = (message) => {
+    clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  };
+
+  const hideToast = () => {
+    clearTimeout(toastTimerRef.current);
+    setToast(null);
+  };
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
 
   useEffect(() => {
     getConversations()
@@ -70,12 +86,13 @@ function ChatPage() {
         const message = event.data;
         if (message.conversation === selectedIdRef.current) {
           setMessages((prev) => addMessage(prev, message));
-        } else {
+        } else if (message.author !== currentUserId) {
           setUnread((prev) =>
             prev.includes(message.conversation)
               ? prev
               : [...prev, message.conversation],
           );
+          showToast(message);
         }
       }
 
@@ -107,6 +124,14 @@ function ChatPage() {
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
+
+  const toastConversation = toast
+    ? conversations.find((c) => c.id === toast.conversation)
+    : null;
+  const toastTitle =
+    toastConversation && toastConversation.participants.length > 2
+      ? `${toast.author_name} · ${conversationName(toastConversation, currentUserId)}`
+      : toast?.author_name;
 
   const handleSend = (e) => {
     e.preventDefault();
@@ -174,6 +199,18 @@ function ChatPage() {
   };
 
   return (
+    <>
+    {toast && (
+      <Toast
+        title={toastTitle}
+        content={toast.content}
+        onOpen={() => {
+          selectConversation(toast.conversation);
+          hideToast();
+        }}
+        onClose={hideToast}
+      />
+    )}
     <div className="flex h-[calc(100dvh-7rem)] w-full max-w-6xl overflow-hidden rounded-xl border border-night-border bg-night-card">
       <aside
         className={`${selectedId !== null ? "hidden" : "flex"} w-full flex-col border-r border-night-border md:flex md:w-72`}
@@ -368,6 +405,7 @@ function ChatPage() {
         )}
       </section>
     </div>
+    </>
   );
 }
 
