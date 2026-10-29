@@ -37,3 +37,10 @@ class DeleteAccountTest(APITestCase):
             "/api/token/", {"username": "bob", "password": "BobPassword1"}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    def test_cannot_write_to_a_deleted_user(self):
+        self.delete_bob("BobPassword1")
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.post(
+            f"/api/conversations/{self.conv.id}/messages/", {"content": "allo ?"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
