@@ -29,6 +29,7 @@ export async function authFetch(path, options = {}, retry = true) {
   }
   if (res.status === 401) expireSession();
   if (!res.ok) throw await res.json();
+  if (res.status === 204) return null;
   return res.json();
 }
 
