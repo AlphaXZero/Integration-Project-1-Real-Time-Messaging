@@ -1,0 +1,86 @@
+@startuml
+title Class Diagram - Real-Time Messaging Application
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor<<planned>> White
+  BorderColor<<planned>> Gray
+  FontColor<<planned>> Gray
+}
+
+' ============================
+' Implemented classes
+' ============================
+
+class User <<Django built-in>> {
+  +id : Integer
+  +username : String {unique}
+  -password : String {hashed}
+}
+
+class Conversation {
+  +id : Integer
+  +created_at : DateTime
+}
+
+class Message {
+  +id : Integer
+  +content : String
+  +created_at : DateTime
+}
+
+' ============================
+' Planned classes (not yet in code)
+' ============================
+
+class Membership <<planned>> {
+  +id : Integer
+  +joined_at : DateTime
+  +last_read_at : DateTime
+}
+
+' ============================
+' Implemented associations
+' ============================
+
+User "0..* conversations" -- "2..* participants" Conversation : participates in >
+Conversation "1 conversation" *-- "0..* messages" Message : contains >
+User "1 author" -- "0..* messages" Message : writes >
+
+' Association class attached to the User <-> Conversation membership
+(User, Conversation) .. Membership
+
+' ============================
+' Notes
+' ============================
+
+note bottom of Membership
+  <<planned>> association class, formalizing
+  the User <-> Conversation many-to-many.
+  Today this relation is a plain
+  participants = ManyToManyField(User)
+  on Conversation, with no join model.
+  Django can migrate it to a through=
+  model without breaking existing data,
+  once unread counters or per-member
+  join dates are needed.
+end note
+
+note right of Conversation
+  Planned attributes (for groups):
+  + type : String {enum: private, group}
+  + name : String (optional, groups only)
+end note
+
+note bottom of Message
+  Django mapping:
+  author = ForeignKey(User, on_delete=CASCADE)
+  conversation = ForeignKey(Conversation, on_delete=CASCADE)
+
+  Planned attributes (if message editing
+  is picked as the optional feature):
+  + edited_at : DateTime
+  + is_deleted : Boolean
+end note
+
+@enduml
