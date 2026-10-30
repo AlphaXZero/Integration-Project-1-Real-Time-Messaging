@@ -6,7 +6,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework.views import APIView
 from rest_framework.response import Response
-
+from rest_framework.exceptions import ValidationError
 
 class ConversationListView(generics.ListCreateAPIView):
     serializer_class = ConversationSerializer
@@ -44,6 +44,11 @@ class MessageListView(generics.ListCreateAPIView):
             id=self.kwargs["conversation_id"],
             participants=self.request.user,
         )
+        if (
+            conversation.participants.count() == 2
+            and conversation.participants.filter(is_active=False).exists()
+        ):
+            raise ValidationError({"detail": "Cette personne a quitté Canopée."})
         serializer.save(author=self.request.user, conversation=conversation)
 
         channel_layer = get_channel_layer()
@@ -68,7 +73,7 @@ class AddParticipantView(APIView):
         if not username:
             return Response({"username": "This field is required."}, status=400)
 
-        user = get_object_or_404(User, username=username)
+        user = get_object_or_404(User, username=username, is_active=True)
         conversation.participants.add(user.id)
 
         data = ConversationSerializer(conversation).data

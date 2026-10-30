@@ -147,7 +147,11 @@ function ChatPage() {
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
-
+  const otherHasLeft =
+    selectedConversation?.participants.length === 2 &&
+    selectedConversation.participants.some(
+      (p) => p.id !== currentUserId && p.is_active === false,
+    );
   const toastConversation = toast
     ? conversations.find((c) => c.id === toast.conversation)
     : null;
@@ -414,26 +418,32 @@ function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <form
-                onSubmit={handleSend}
-                className="flex gap-2 border-t border-night-border p-3"
-              >
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Écrire un message…"
-                  aria-label="Message"
-                  className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2.5 text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={sending}
-                  className="cursor-pointer rounded-md bg-forest px-5 font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
+              {otherHasLeft ? (
+                <p className="border-t border-night-border p-4 text-center text-sm text-mist">
+                  Cette personne a quitté Canopée.
+                </p>
+              ) : (
+                <form
+                  onSubmit={handleSend}
+                  className="flex gap-2 border-t border-night-border p-3"
                 >
-                  Envoyer
-                </button>
-              </form>
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Écrire un message…"
+                    aria-label="Message"
+                    className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2.5 text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sending}
+                    className="cursor-pointer rounded-md bg-forest px-5 font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Envoyer
+                  </button>
+                </form>
+              )}
             </>
           )}
         </section>
