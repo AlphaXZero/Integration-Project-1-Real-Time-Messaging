@@ -89,14 +89,27 @@ class AddParticipantView(APIView):
             return Response({"username": "This field is required."}, status=400)
 
         user = get_object_or_404(User, username=username)
-        conversation.participants.add(user.id)
 
-        data = ConversationSerializer(conversation).data
+        if conversation.participants.filter(id=user.id).exists():
+            return Response(ConversationSerializer(conversation).data)
+
+        if conversation.is_group:
+            conversation.participants.add(user)
+            target = conversation
+            event_type = "conversation.updated"
+            status = 200
+        else:
+            target = Conversation.objects.create(is_group=True)
+            target.participants.add(*conversation.participants.all(), user)
+            event_type = "conversation.created"
+            status = 201
+
+        data = ConversationSerializer(target).data
         channel_layer = get_channel_layer()
-        for participant in conversation.participants.all():
+        for participant in target.participants.all():
             async_to_sync(channel_layer.group_send)(
                 f"user_{participant.id}",
-                {"type": "conversation.updated", "conversation": data},
+                {"type": event_type, "conversation": data},
             )
 
-        return Response(data)
+        return Response(data, status=status)
