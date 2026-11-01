@@ -83,4 +83,3 @@ export function connectChat(onMessage, onReconnect) {
     ws?.close();
   };
 }
-}
