@@ -1,0 +1,49 @@
+name: CD
+
+# Déploiement continu : à chaque push sur main (donc à chaque PR fusionnée),
+# on relance les tests puis, s'ils passent, on déploie sur le VPS.
+# "workflow_dispatch" ajoute un bouton "Run workflow" pour déployer à la main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Jamais deux déploiements en même temps : le suivant attend la fin du précédent.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Réutilise exactement les mêmes vérifications que la CI des pull requests.
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: tests
+    # Interrupteur : le déploiement ne tourne que si la variable CD_ENABLED vaut "true"
+    # (Settings > Secrets and variables > Actions > Variables).
+    if: vars.CD_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Préparer la connexion SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      # Sur le VPS, cette clé est limitée à une seule action : lancer deploy/deploy.sh.
+      # Pas besoin d'envoyer de commande, le serveur sait déjà quoi exécuter.
+      - name: Déployer sur le VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$VPS_USER@$VPS_HOST"
