@@ -1,0 +1,3 @@
+# Les scripts shell doivent garder des fins de ligne Linux (LF),
+# même s'ils sont modifiés depuis Windows. Sinon bash plante sur le VPS.
+*.sh text eol=lf

@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username"]
+        fields = ["id", "username", "is_active"]
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -34,7 +34,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     participants = UserSerializer(many=True, read_only=True)
     participant_usernames = serializers.SlugRelatedField(
         many=True,
-        queryset=User.objects.all(),
+        queryset=User.objects.filter(is_active=True),
         slug_field="username",
         write_only=True,
         source="participants",
