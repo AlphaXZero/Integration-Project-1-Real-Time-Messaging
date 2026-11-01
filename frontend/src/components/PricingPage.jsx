@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { isLoggedIn } from "../api/auth";
 
 const plans = [
     {
@@ -7,30 +8,37 @@ const plans = [
         description: "L'essentiel pour discuter avec ton équipe.",
         monthly: 0,
         yearly: 0,
-        cta: "Commencer gratuitement",
+        cta: { label: "Commencer gratuitement", to: "/register" },
+        memberCta: { label: "Ouvrir Canopée", to: "/chat" },
     },
     {
         name: "Canopée+",
         description: "Personnalise ton espace et partage plus que du texte.",
         monthly: 4,
         yearly: 3,
-        cta: "Passer à Canopée+",
+        cta: { label: "Passer à Canopée+", to: "/register" },
+        memberCta: { label: "Bientôt disponible", disabled: true },
         highlighted: true,
     },
     {
         name: "Entreprise",
         description: "Pour les organisations aux besoins spécifiques.",
         custom: true,
-        cta: "Nous contacter",
+        cta: { label: "Nous contacter", to: "/equipe" },
     },
 ];
 
-// plan = première offre qui inclut la fonctionnalité (0 = Gratuit, 1 = Canopée+, 2 = Entreprise)
+const quotas = [
+    { label: "Messages", values: ["Illimités", "Illimités", "Illimités"] },
+    { label: "Historique", values: ["Illimité", "Illimité", "Illimité"] },
+    { label: "Membres par groupe", values: ["10", "100", "Illimité"] },
+];
+
 const features = [
     { label: "Conversations privées et de groupe", plan: 0 },
     { label: "Messages en temps réel", plan: 0 },
-    { label: "Notifications et compteur de non-lus", plan: 0 },
-    { label: "Historique illimité", plan: 1 },
+    { label: "Notifications des nouveaux messages", plan: 0 },
+    { label: "Réactivation d'un compte désactivé", plan: 1 },
     { label: "Choix du thème (clair, sombre, couleurs)", plan: 1, soon: true },
     { label: "Envoi d'images", plan: 1, soon: true },
     { label: "GIF et réactions emoji", plan: 1, soon: true },
@@ -41,6 +49,7 @@ const features = [
 
 function PricingPage() {
     const [yearly, setYearly] = useState(false);
+    const loggedIn = isLoggedIn();
 
     const toggleClass = (active) =>
         `cursor-pointer rounded-full px-4 py-1.5 text-sm font-semibold transition ${active ? "bg-forest text-white" : "text-mist hover:text-ink"
@@ -69,6 +78,7 @@ function PricingPage() {
             <div className="grid gap-6 md:grid-cols-3">
                 {plans.map((plan, planIndex) => {
                     const price = yearly ? plan.yearly : plan.monthly;
+                    const cta = loggedIn && plan.memberCta ? plan.memberCta : plan.cta;
                     return (
                         <div
                             key={plan.name}
@@ -96,6 +106,15 @@ function PricingPage() {
                                 {yearly && price > 0 && <p className="mt-1 text-xs text-mist">Facturé annuellement</p>}
                             </div>
 
+                            <dl className="mb-6 flex flex-col gap-2 border-y border-night-border py-4 text-sm">
+                                {quotas.map((quota) => (
+                                    <div key={quota.label} className="flex items-baseline justify-between gap-4">
+                                        <dt className="text-mist">{quota.label}</dt>
+                                        <dd className="text-right font-semibold text-ink">{quota.values[planIndex]}</dd>
+                                    </div>
+                                ))}
+                            </dl>
+
                             <ul className="mb-8 flex flex-1 flex-col gap-2.5 text-sm">
                                 {features.map((feature) => {
                                     const included = planIndex >= feature.plan;
@@ -121,15 +140,24 @@ function PricingPage() {
                                 })}
                             </ul>
 
-                            <Link
-                                to="/register"
-                                className={`rounded-md py-3 text-center font-semibold transition ${plan.highlighted
-                                        ? "bg-forest text-white hover:bg-forest-hover"
-                                        : "border border-night-border text-ink hover:bg-night-bg"
-                                    }`}
-                            >
-                                {plan.cta}
-                            </Link>
+                            {cta.disabled ? (
+                                <span
+                                    aria-disabled="true"
+                                    className="cursor-not-allowed rounded-md border border-night-border py-3 text-center font-semibold text-mist"
+                                >
+                                    {cta.label}
+                                </span>
+                            ) : (
+                                <Link
+                                    to={cta.to}
+                                    className={`rounded-md py-3 text-center font-semibold transition ${plan.highlighted
+                                            ? "bg-forest text-white hover:bg-forest-hover"
+                                            : "border border-night-border text-ink hover:bg-night-bg"
+                                        }`}
+                                >
+                                    {cta.label}
+                                </Link>
+                            )}
                         </div>
                     );
                 })}
