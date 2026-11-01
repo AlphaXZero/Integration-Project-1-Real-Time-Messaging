@@ -6,6 +6,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 
 class ConversationListView(generics.ListCreateAPIView):
@@ -16,9 +17,28 @@ class ConversationListView(generics.ListCreateAPIView):
         return Conversation.objects.filter(participants=self.request.user)
 
     def perform_create(self, serializer):
-        new_list = serializer.validated_data["participants"] + [self.request.user]
-        conversation = serializer.save(participants=new_list)
+        user = self.request.user
+        others = [p for p in serializer.validated_data["participants"] if p != user]
 
+        if len(others) == 0:
+            raise ValidationError(
+                {"participant_usernames": "Add at least one other user."}
+            )
+
+        is_group = len(others) > 1
+
+        if not is_group:
+            existing = (
+                Conversation.objects.filter(is_group=False)
+                .filter(participants=user)
+                .filter(participants=others[0])
+                .first()
+            )
+            if existing:
+                serializer.instance = existing
+                return
+
+        conversation = serializer.save(participants=others + [user], is_group=is_group)
         channel_layer = get_channel_layer()
         for participant in conversation.participants.all():
             async_to_sync(channel_layer.group_send)(
