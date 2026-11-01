@@ -38,8 +38,17 @@ class ConversationSerializer(serializers.ModelSerializer):
         slug_field="username",
         write_only=True,
         source="participants",
+        allow_empty=False,
     )
 
     class Meta:
         model = Conversation
-        fields = ["id", "participants", "participant_usernames", "created_at"]
+        fields = [
+            "id",
+            "is_group",
+            "name",
+            "participants",
+            "participant_usernames",
+            "created_at",
+        ]
+        read_only_fields = ["is_group"]

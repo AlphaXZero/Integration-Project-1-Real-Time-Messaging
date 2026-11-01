@@ -25,7 +25,14 @@ function addMessage(list, message) {
   return [...list, message];
 }
 
+// Private or group: decided by the backend (is_group).
+function isGroup(conversation) {
+  return conversation.is_group ?? conversation.participants.length > 2;
+}
+
+// A group shows its name if it has one, otherwise the other participants.
 function conversationName(conversation, currentUserId) {
+  if (isGroup(conversation) && conversation.name) return conversation.name;
   const others = conversation.participants.filter(
     (p) => p.id !== currentUserId,
   );
@@ -49,6 +56,7 @@ function ChatPage() {
   const [error, setError] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [participantInput, setParticipantInput] = useState("");
+  const [groupNameInput, setGroupNameInput] = useState("");
   const messagesEndRef = useRef(null);
   const [unread, setUnread] = useState([]);
   const selectedIdRef = useRef(null);
@@ -71,7 +79,7 @@ function ChatPage() {
     setToast(message);
     toastTimerRef.current = setTimeout(() => setToast(null), 4000);
     notificationSound.currentTime = 0;
-    notificationSound.play().catch(() => {});
+    notificationSound.play().catch(() => { });
   };
 
   const hideToast = () => {
@@ -148,15 +156,21 @@ function ChatPage() {
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
   const otherHasLeft =
-    selectedConversation?.participants.length === 2 &&
+    selectedConversation &&
+    !isGroup(selectedConversation) &&
     selectedConversation.participants.some(
       (p) => p.id !== currentUserId && p.is_active === false,
     );
+  const privateSelected =
+    selectedConversation && !isGroup(selectedConversation);
+  const addLabel = privateSelected
+    ? "Créer un groupe avec une autre personne"
+    : "Ajouter un participant";
   const toastConversation = toast
     ? conversations.find((c) => c.id === toast.conversation)
     : null;
   const toastTitle =
-    toastConversation && toastConversation.participants.length > 2
+    toastConversation && isGroup(toastConversation)
       ? `${toast.author_name} · ${conversationName(toastConversation, currentUserId)}`
       : toast?.author_name;
 
@@ -185,6 +199,11 @@ function ChatPage() {
         setAddInput("");
         setShowAddForm(false);
         setError(null);
+        // Adding someone to a private conversation creates a new group:
+        // open it directly.
+        if (updated.id !== selectedId) {
+          selectConversation(updated.id);
+        }
       })
       .catch((err) => {
         if (err.code === "token_not_valid") {
@@ -194,24 +213,30 @@ function ChatPage() {
         }
       });
   };
+  const newUsernames = participantInput
+    .split(",")
+    .map((value) => value.trim())
+    .filter((name) => name !== "")
+    .filter((name) => name !== getCurrentUsername());
+  const creatingGroup = newUsernames.length > 1;
+
   const handleCreate = (e) => {
     e.preventDefault();
-    const currentUsername = getCurrentUsername();
-    const usernames = participantInput
-      .split(",")
-      .map((value) => value.trim())
-      .filter((name) => name !== "")
-      .filter((name) => name !== currentUsername);
 
-    if (usernames.length === 0) {
+    if (newUsernames.length === 0) {
       setError("Indique au moins un nom d'utilisateur.");
       return;
     }
 
-    createConversation(usernames)
+    const groupName = creatingGroup ? groupNameInput.trim() : "";
+
+    // A private conversation that already exists is returned by the API
+    // instead of creating a duplicate: upsertItem avoids adding it twice.
+    createConversation(newUsernames, groupName)
       .then((created) => {
-        setConversations((prev) => addMessage(prev, created));
+        setConversations((prev) => upsertItem(prev, created));
         setParticipantInput("");
+        setGroupNameInput("");
         setShowNewForm(false);
         setError(null);
         selectConversation(created.id);
@@ -266,6 +291,9 @@ function ChatPage() {
                 >
                   Noms des participants (séparés par des virgules)
                 </label>
+                <p className="text-[11px] text-mist/80">
+                  Un nom : conversation privée. Plusieurs : groupe.
+                </p>
                 <input
                   id="participants"
                   type="text"
@@ -274,12 +302,23 @@ function ChatPage() {
                   placeholder="bob, charlie"
                   className="rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
                 />
+                {creatingGroup && (
+                  <input
+                    type="text"
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    placeholder="Nom du groupe (optionnel)"
+                    aria-label="Nom du groupe"
+                    maxLength={100}
+                    className="rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                  />
+                )}
                 <button
                   type="submit"
                   disabled={participantInput.trim() === ""}
                   className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Créer
+                  {creatingGroup ? "Créer le groupe" : "Créer"}
                 </button>
               </form>
             )}
@@ -290,11 +329,10 @@ function ChatPage() {
               <li key={conversation.id}>
                 <button
                   onClick={() => selectConversation(conversation.id)}
-                  className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
-                    conversation.id === selectedId
-                      ? "border-forest bg-night-bg"
-                      : "border-transparent"
-                  }`}
+                  className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId
+                    ? "border-forest bg-night-bg"
+                    : "border-transparent"
+                    }`}
                 >
                   <p className="flex items-center gap-2 font-semibold text-ink">
                     {conversationName(conversation, currentUserId)}
@@ -306,7 +344,7 @@ function ChatPage() {
                     )}
                   </p>
                   <p className="text-xs text-mist">
-                    {conversation.participants.length > 2
+                    {isGroup(conversation)
                       ? `Groupe · ${conversation.participants.length} membres`
                       : "Conversation privée"}
                   </p>
@@ -348,10 +386,8 @@ function ChatPage() {
                   <button
                     type="button"
                     onClick={() => setShowAddForm(!showAddForm)}
-                    aria-label={
-                      showAddForm ? "Annuler" : "Ajouter un participant"
-                    }
-                    title={showAddForm ? "Annuler" : "Ajouter un participant"}
+                    aria-label={showAddForm ? "Annuler" : addLabel}
+                    title={showAddForm ? "Annuler" : addLabel}
                     className="cursor-pointer rounded-md px-2 text-xl font-bold text-mist hover:bg-night-bg hover:text-ink"
                   >
                     {showAddForm ? "×" : "+"}
@@ -367,7 +403,11 @@ function ChatPage() {
                       type="text"
                       value={addInput}
                       onChange={(e) => setAddInput(e.target.value)}
-                      placeholder="Nom d'utilisateur à ajouter"
+                      placeholder={
+                        privateSelected
+                          ? "Nom d'utilisateur (crée un nouveau groupe)"
+                          : "Nom d'utilisateur à ajouter"
+                      }
                       aria-label="Nom d'utilisateur à ajouter"
                       className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
                     />
@@ -401,11 +441,10 @@ function ChatPage() {
                         </span>
                       )}
                       <p
-                        className={`rounded-2xl px-4 py-2 text-sm ${
-                          isMine
-                            ? "rounded-br-sm bg-forest text-white"
-                            : "rounded-bl-sm bg-night-bg text-ink"
-                        }`}
+                        className={`rounded-2xl px-4 py-2 text-sm ${isMine
+                          ? "rounded-br-sm bg-forest text-white"
+                          : "rounded-bl-sm bg-night-bg text-ink"
+                          }`}
                       >
                         {message.content}
                       </p>
