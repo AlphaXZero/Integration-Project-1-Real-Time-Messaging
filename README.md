@@ -2,6 +2,8 @@
 
 A real-time web-based chat application, developed as a school project by a team of 2.
 
+The site can be accessed at this address: `https://canopee.coisnevalentin.be/`
+
 ## Tech Stack
 
 | Component | Technology |
