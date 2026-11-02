@@ -176,7 +176,10 @@ urlpatterns = [path("register/", views.register_view_api)]
 ```
 `config/urls.py`:
 ```python
-(path("api/", include("accounts.urls")),)
+urlpatterns = [
+    ...,
+    path("api/", include("accounts.urls")),
+]
 ```
 The final URL is `api/` + `register/` = `/api/register/`.
 
@@ -219,6 +222,8 @@ class Message(models.Model):
 - `on_delete=CASCADE`: deleting a conversation also deletes its messages.
 - `auto_now_add=True`: the date is filled in automatically at creation.
 - `__str__`: only used for display in the admin and the shell.
+
+Two fields were added later to separate private and group conversations: see section 14.
 
 ```bash
 uv run manage.py makemigrations chat
@@ -343,7 +348,7 @@ class MessageListView(generics.ListCreateAPIView):
 - **`ListCreateAPIView`**: one URL handles both GET (list) and POST (create).
 - **`get_queryset`**: decides which objects can be read. Here, only the user's own conversations, and only messages from conversations they are in.
 - **`perform_create`**: runs before saving, to add what the client is not allowed to send.
-  - Creating a conversation: the creator is always added to the participants.
+  - Creating a conversation: the creator is always added to the participants (later extended to choose between private and group: see section 14).
   - Sending a message: `get_object_or_404` finds the conversation **only if the user is a participant**. Otherwise → 404.
 - **`self.kwargs["conversation_id"]`**: the value from the URL `<int:conversation_id>`.
 - **`order_by("created_at")`**: without it, the database doesn't guarantee any order.
@@ -744,11 +749,13 @@ useEffect(() => {
   - `selectedIdRef` (a `useRef`) always holds the current open conversation;
   - `setMessages((prev) => ...)` always receives the up-to-date list.
 
+Valentin later added on the frontend: automatic WebSocket reconnection, automatic token refresh, a toast with a sound when a message arrives in another conversation, and a redirect to `/login` when the session has expired.
+
 ---
 ## 11. Backend: add a participant to a conversation
 
 ### The endpoint
-`POST /api/conversations/<id>/participants/` with `{"username": "charlie"}` adds Charlie to an existing conversation (this is how a private conversation becomes a group).
+`POST /api/conversations/<id>/participants/` with `{"username": "charlie"}` adds Charlie to an existing conversation. (Since section 14, adding someone to a **private** conversation creates a new group instead.)
 
 Rules:
 - only a **participant** of the conversation can add someone → otherwise 404
@@ -825,13 +832,14 @@ for someone outside the conversation, "doesn't exist" and "not yours" give the s
 
 ### URL (`chat/urls.py`)
 ```python
-(
+urlpatterns = [
+    ...,
     path(
         "conversations/<int:conversation_id>/participants/",
         AddParticipantView.as_view(),
         name="add-participant",
     ),
-)
+]
 ```
 
 ### Testing
@@ -913,20 +921,27 @@ Same loop as for messages, with a different `type`:
 ### Receiving (consumer)
 One method per event `type` (dots become underscores), each one wraps the data in the envelope:
 ```python
-async def chat_message(self, event):
-    await self.send(text_data=json.dumps({"type": "message", "data": event["message"]}))
+class ChatConsumer(AsyncWebsocketConsumer):
+    # ... connect / disconnect (see section 9)
 
+    async def chat_message(self, event):
+        await self.send(
+            text_data=json.dumps({"type": "message", "data": event["message"]})
+        )
 
-async def conversation_created(self, event):
-    await self.send(
-        text_data=json.dumps({"type": "conversation", "data": event["conversation"]})
-    )
+    async def conversation_created(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {"type": "conversation", "data": event["conversation"]}
+            )
+        )
 
-
-async def conversation_updated(self, event):
-    await self.send(
-        text_data=json.dumps({"type": "conversation", "data": event["conversation"]})
-    )
+    async def conversation_updated(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {"type": "conversation", "data": event["conversation"]}
+            )
+        )
 ```
 This replaces the `chat_message` of section 9, which sent the message without an envelope.
 
@@ -979,13 +994,271 @@ const p = JSON.parse(atob(localStorage.getItem("access").split(".")[1].replace(/
 console.log((p.exp - p.iat) / 60, "minutes");
 ```
 
-This only delays the problem: the real fix is on the frontend, which must use the `refresh` token to get a new `access` token automatically when it expires (done by Valentin).
+On its own, this only delays the problem. The real fix is on the frontend: when a request gets a 401, it uses the `refresh` token to get a new `access` token and retries (done by Valentin). Together, the user only has to log in again after 3 days.
 
-## Still to do
-- Password strength check on registration + tests for `register`.
-- Tests for the `POST` endpoints (send a message, create a conversation).
-- Redis for the channel layer (production).
-- PostgreSQL at deployment (SQLite in development).
-- Nice to have: `GET /api/users/` for username autocompletion.
+**Gotcha**: the commit was made locally but never pushed: the branch existed on GitHub, but empty. `git status -sb` shows `[ahead 1]` when a commit hasn't been pushed yet.
 
-Done by Valentin in the meantime: secrets and settings read from a `.env` file (`DJANGO_SECRET_KEY`, `DJANGO_DEBUG`...), Nginx + systemd configuration for the VPS.
+
+---
+
+## 14. Backend: private and group conversations
+
+### The problem
+Private and group conversations were only told apart by counting the participants (2 = private). This caused two issues:
+- adding someone to a private conversation turned it into a group: the two original people suddenly had a third person in their private chat, with access to its whole history;
+- creating a conversation with someone you already talk to created a second, duplicate private conversation.
+
+### The rules
+| | Private | Group |
+|---|---|---|
+| Participants | exactly 2 | 2 or more |
+| Name | none | optional |
+| Created with | 1 other username | several other usernames |
+| Same people again | the existing conversation is returned | a new group is created |
+| Adding someone | creates a **new group** (the private one doesn't change) | the person is added to the group |
+
+The new group starts **without history**: the old messages stay in the private conversation (same behaviour as Messenger or Teams).
+
+### The model (`chat/models.py`)
+```python
+class Conversation(models.Model):
+    participants = models.ManyToManyField(User)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_group = models.BooleanField(default=False)
+    name = models.CharField(max_length=100, blank=True)
+```
+```bash
+uv run manage.py makemigrations chat
+uv run manage.py migrate
+```
+- **`BooleanField(default=False)`**: true or false; a conversation is private by default.
+- **`CharField(max_length=100)`**: short text, the maximum length is required (unlike `TextField`).
+- **`blank=True`**: the name can be empty (private conversations have none).
+- The migration (`0002_conversation_is_group_conversation_name.py`) must be committed with the model, otherwise the other developer and the server don't get the new columns.
+
+**Why `default=False` matters**: without it, the migration asks for a value for the conversations already in the database, and every `Conversation.objects.create()` that doesn't give `is_group` fails with `IntegrityError: NOT NULL constraint failed` (including the existing tests).
+
+### The serializer (`chat/serializers.py`)
+```python
+class ConversationSerializer(serializers.ModelSerializer):
+    participants = UserSerializer(many=True, read_only=True)
+    participant_usernames = serializers.SlugRelatedField(
+        many=True,
+        queryset=User.objects.all(),
+        slug_field="username",
+        write_only=True,
+        source="participants",
+        allow_empty=False,
+    )
+
+    class Meta:
+        model = Conversation
+        fields = [
+            "id",
+            "is_group",
+            "name",
+            "participants",
+            "participant_usernames",
+            "created_at",
+        ]
+        read_only_fields = ["is_group"]
+```
+- **`is_group` is read-only**: the **server** decides the type by counting the participants. A client can't create a "private" conversation with 5 people.
+- **`name`** is optional automatically, because the model field has `blank=True`.
+- **`allow_empty=False`**: an empty list of usernames returns a 400 (by default, `many=True` accepts an empty list).
+
+### Creating a conversation (`ConversationListView.perform_create`)
+```python
+from rest_framework.exceptions import ValidationError
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        others = [p for p in serializer.validated_data["participants"] if p != user]
+
+        if len(others) == 0:
+            raise ValidationError(
+                {"participant_usernames": "Add at least one other user."}
+            )
+
+        is_group = len(others) > 1
+
+        if not is_group:
+            existing = (
+                Conversation.objects.filter(is_group=False)
+                .filter(participants=user)
+                .filter(participants=others[0])
+                .first()
+            )
+            if existing:
+                serializer.instance = existing
+                return
+
+        conversation = serializer.save(participants=others + [user], is_group=is_group)
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.created", "conversation": serializer.data},
+            )
+```
+- **`others`**: everyone sent by the client **except me** (a list comprehension). For a private conversation with Bob, `others` is `[bob]`, so its length is **1**, not 2.
+- **`raise ValidationError({...})`**: stops the view and returns a 400 with this message.
+- **Two separate `.filter()`** to find an existing private conversation: "I am in it" **and** "the other person is in it". A single filter with both conditions would look for one row of the join table that is both users at once, which is impossible.
+- **`.first()`**: the first result, or `None` if there is none (no error, unlike `.get()`).
+- **`serializer.instance = existing`**: DRF builds the response from `serializer.instance`. Setting it without calling `save()` returns the existing conversation instead of creating a new one. Nobody is notified, since nothing changed.
+
+### Adding a participant (`AddParticipantView.post`)
+```python
+        user = get_object_or_404(User, username=username)
+
+        if conversation.participants.filter(id=user.id).exists():
+            return Response(ConversationSerializer(conversation).data)
+
+        if conversation.is_group:
+            conversation.participants.add(user)
+            target = conversation
+            event_type = "conversation.updated"
+            status = 200
+        else:
+            target = Conversation.objects.create(is_group=True)
+            target.participants.add(*conversation.participants.all(), user)
+            event_type = "conversation.created"
+            status = 201
+
+        data = ConversationSerializer(target).data
+        channel_layer = get_channel_layer()
+        for participant in target.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": event_type, "conversation": data},
+            )
+
+        return Response(data, status=status)
+```
+- **Already in the conversation** (e.g. adding Bob to my private conversation with Bob): nothing to do, the conversation is returned as it is. Otherwise a "group" identical to the private conversation would be created.
+- **`.filter(...).exists()`**: `True` or `False`, without loading the objects.
+- **Group** → the person is added, the others receive `conversation.updated`, status **200**.
+- **Private** → a **new** group is created, the 3 people receive `conversation.created`, status **201** ("created"). The frontend can use the 201 to open the new group directly.
+- **`Conversation.objects.create(is_group=True)`**: creates and saves in one line. Participants can't be passed here: a ManyToMany is filled **after** creation, once the object has an `id`.
+- **`.add(*list, user)`**: the star unpacks the list, so `.add(*[alice, bob], charlie)` is the same as `.add(alice, bob, charlie)`.
+- **`target`**: the conversation that actually changed (the existing group or the new one), so the serializer, the WebSocket loop and the response are shared by both cases.
+
+### Testing
+Create a conversation (logged in as Alice):
+- `{"participant_usernames": ["bob"]}` → private conversation, 201, `is_group: false`
+- the same request again → the **same** conversation (same `id`), no duplicate
+- `{"participant_usernames": ["bob", "charlie"]}` → group, `is_group: true`
+- `{"participant_usernames": ["alice"]}` (only me) → 400
+
+Add a participant:
+- to a private conversation Alice + Bob → new group Alice + Bob + Charlie appears for all 3, the private one doesn't change (201)
+- to a group → the person is added to the existing group (200)
+- someone already in the conversation → nothing changes
+
+### Key learnings
+- `others` excludes me: counting as if I were in the list gave `len(others) < 2` (which refused every private conversation) and `1 < len(others) < 3` (never a private one).
+- A variable used before being defined (`is_group`) raises a `NameError`; a class used without its import (`ValidationError`) too, which becomes a 500 error instead of a clean 400.
+- Removing the `if existing:` check made the view return early even when no private conversation existed: nothing was created.
+- When rewriting a view, delete the old line: the old `conversation.participants.add(...)` left before the new conditions added the user to the private conversation and made the view always stop early.
+- The `type` of `group_send` uses a **dot** and the **exact** method name (`conversation.created`, not `conversation_create`): otherwise Channels finds no handler and the frontend receives nothing.
+
+---
+
+## 15. Cheat sheet: adding an API endpoint
+
+### Steps
+1. **Choose the URL and the verb**: `GET` read, `POST` create / action, `PATCH` modify, `DELETE` delete.
+2. **Write the rules**: who can do it, what is sent, what is invalid, what is returned.
+3. **Write the view** in `views.py`.
+4. **Add the URL** in `urls.py`.
+5. **Notify in real time** if other users must see the change.
+6. **Test** with `curl`, then add the function in `frontend/src/api/`.
+
+### Which view?
+| Need | View | What to write |
+|---|---|---|
+| list + create | `generics.ListCreateAPIView` | `serializer_class`, `get_queryset()`, `perform_create()` |
+| action on one object | `APIView` | one method per verb: `def post(self, request, id)`, `def patch(...)`... |
+
+Always: `permission_classes = [permissions.IsAuthenticated]`.
+
+### Useful functions
+
+**Reading the request**
+| Code | Gives |
+|---|---|
+| `request.user` (`self.request.user` in generic views) | the logged-in user |
+| `request.data.get("key", default)` | a value from the JSON body, or `default` if missing |
+| method argument / `self.kwargs["id"]` | a value from the URL (`<int:id>`) |
+
+**Finding objects**
+| Code | Does |
+|---|---|
+| `get_object_or_404(Model, field=value, ...)` | one object, or stops with a **404**. Always add the permission filter (`participants=request.user`) |
+| `Model.objects.filter(...)` | all matching objects (AND between filters) |
+| `.exclude(...)` | the opposite of `filter` |
+| `.first()` | first result, or `None` |
+| `.exists()` | `True` / `False`, without loading the objects |
+| `.count()` | number of results |
+| `.order_by("field")` / `.order_by("-field")` | sort ascending / descending |
+| `relation__field=value` | filter through a relation (`conversation__participants=user`) |
+
+**Changing the database**
+| Code | Does |
+|---|---|
+| `Model.objects.create(field=value)` | create and save |
+| `obj.field = value` then `obj.save(update_fields=["field"])` | modify (nothing is saved without `.save()`) |
+| `obj.m2m.add(a, b)` / `.remove(a)` / `.set([a, b])` | add / remove / replace in a ManyToMany |
+| `obj.delete()` | delete |
+| `serializer.save(field=value)` | save with extra values the client can't send (`author=request.user`) |
+
+**Answering**
+| Code | Result |
+|---|---|
+| `Response(data)` | 200 |
+| `Response(data, status=201)` | created |
+| `Response({"field": "message"}, status=400)` | invalid data |
+| `raise ValidationError({"field": "message"})` | 400 from anywhere in a view (import from `rest_framework.exceptions`) |
+| `Serializer(obj).data` | the object as JSON |
+
+**Real time**
+```python
+channel_layer = get_channel_layer()
+for participant in conversation.participants.all():
+    async_to_sync(channel_layer.group_send)(
+        f"user_{participant.id}",
+        {"type": "conversation.updated", "conversation": data},
+    )
+```
+Existing types: `chat.message`, `conversation.created`, `conversation.updated`. A new type `"x.y"` needs a method `x_y` in `ChatConsumer`.
+
+### URL
+```python
+(path("conversations/<int:conversation_id>/", MyView.as_view(), name="my-view"),)
+```
+The name in `<int:...>` must match the argument of the view method.
+
+### Common mistakes
+- Filtering on a URL parameter name instead of a model field (`conversation_id=` instead of `id=`).
+- Forgetting the permission filter: anyone can act on anyone's data.
+- Calling a method on the class instead of the object (`Conversation.participants` vs `conversation.participants`).
+- Not checking a length limit (`max_length`): a 500 instead of a 400.
+- Model changed but no `makemigrations`, or the migration file not committed.
+- Server not restarted after switching branch: "URL not found".
+
+---
+
+## 16. Cheat sheet: Ruff (lint and format)
+
+Run from `backend/`.
+
+```bash
+uv run ruff check --fix .      # fix what can be fixed automatically
+uv run ruff format .           # format all files
+uv run ruff check .            # check that nothing is left
+uv run ruff format --check .   # check formatting without changing anything (what the CI runs)
+uv run ruff rule E402          # explain a rule
+```
+
+- `check` finds errors (unused imports, undefined names, import order); `format` rewrites the layout.
+- Ignore one rule on one line, on purpose and with a comment: `# noqa: E402` (used in `config/asgi.py`: those imports must stay after `get_asgi_application()`, otherwise Daphne crashes).

@@ -1,6 +1,7 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+
 from .serializers import RegisterSerializer
 
 
@@ -12,6 +13,7 @@ def register_view_api(request):
         serializer.save()
         return Response(serializer.data, status=201)
     return Response(serializer.errors, status=400)
+
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])

@@ -4,6 +4,7 @@ import {
   addParticipant,
   getConversations,
   getMessages,
+  renameConversation,
   sendMessage,
   connectChat,
   createConversation,
@@ -25,7 +26,14 @@ function addMessage(list, message) {
   return [...list, message];
 }
 
+// Private or group: decided by the backend (is_group).
+function isGroup(conversation) {
+  return conversation.is_group ?? conversation.participants.length > 2;
+}
+
+// A group shows its name if it has one, otherwise the other participants.
 function conversationName(conversation, currentUserId) {
+  if (isGroup(conversation) && conversation.name) return conversation.name;
   const others = conversation.participants.filter(
     (p) => p.id !== currentUserId,
   );
@@ -49,11 +57,15 @@ function ChatPage() {
   const [error, setError] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [participantInput, setParticipantInput] = useState("");
+  const [groupNameInput, setGroupNameInput] = useState("");
   const messagesEndRef = useRef(null);
   const [unread, setUnread] = useState([]);
   const selectedIdRef = useRef(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addInput, setAddInput] = useState("");
+  const [showRenameForm, setShowRenameForm] = useState(false);
+  const [renameInput, setRenameInput] = useState("");
+  const [showMembers, setShowMembers] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
@@ -144,19 +156,28 @@ function ChatPage() {
     setSelectedId(id);
     setShowAddForm(false);
     setAddInput("");
+    setShowRenameForm(false);
+    setShowMembers(false);
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
   const otherHasLeft =
-    selectedConversation?.participants.length === 2 &&
+    selectedConversation &&
+    !isGroup(selectedConversation) &&
     selectedConversation.participants.some(
       (p) => p.id !== currentUserId && p.is_active === false,
     );
+  const privateSelected =
+    selectedConversation && !isGroup(selectedConversation);
+  const groupSelected = selectedConversation && isGroup(selectedConversation);
+  const addLabel = privateSelected
+    ? "Créer un groupe avec une autre personne"
+    : "Ajouter un participant";
   const toastConversation = toast
     ? conversations.find((c) => c.id === toast.conversation)
     : null;
   const toastTitle =
-    toastConversation && toastConversation.participants.length > 2
+    toastConversation && isGroup(toastConversation)
       ? `${toast.author_name} · ${conversationName(toastConversation, currentUserId)}`
       : toast?.author_name;
 
@@ -173,6 +194,36 @@ function ChatPage() {
       .catch(handleError)
       .finally(() => setSending(false));
   };
+  const toggleMembers = () => {
+    setShowAddForm(false);
+    setShowRenameForm(false);
+    setShowMembers(!showMembers);
+  };
+  const openRenameForm = () => {
+    setShowAddForm(false);
+    setShowMembers(false);
+    setRenameInput(selectedConversation?.name ?? "");
+    setShowRenameForm(true);
+  };
+
+  // An empty name removes it: the group shows its members again.
+  const handleRename = (e) => {
+    e.preventDefault();
+
+    renameConversation(selectedId, renameInput.trim())
+      .then((updated) => {
+        setConversations((prev) => upsertItem(prev, updated));
+        setShowRenameForm(false);
+        setError(null);
+      })
+      .catch((err) => {
+        if (err.name) {
+          setError("Nom invalide (100 caractères maximum).");
+        } else {
+          handleError(err);
+        }
+      });
+  };
 
   const handleAddParticipant = (e) => {
     e.preventDefault();
@@ -185,6 +236,11 @@ function ChatPage() {
         setAddInput("");
         setShowAddForm(false);
         setError(null);
+        // Adding someone to a private conversation creates a new group:
+        // open it directly.
+        if (updated.id !== selectedId) {
+          selectConversation(updated.id);
+        }
       })
       .catch((err) => {
         if (err.code === "token_not_valid") {
@@ -194,24 +250,30 @@ function ChatPage() {
         }
       });
   };
+  const newUsernames = participantInput
+    .split(",")
+    .map((value) => value.trim())
+    .filter((name) => name !== "")
+    .filter((name) => name !== getCurrentUsername());
+  const creatingGroup = newUsernames.length > 1;
+
   const handleCreate = (e) => {
     e.preventDefault();
-    const currentUsername = getCurrentUsername();
-    const usernames = participantInput
-      .split(",")
-      .map((value) => value.trim())
-      .filter((name) => name !== "")
-      .filter((name) => name !== currentUsername);
 
-    if (usernames.length === 0) {
+    if (newUsernames.length === 0) {
       setError("Indique au moins un nom d'utilisateur.");
       return;
     }
 
-    createConversation(usernames)
+    const groupName = creatingGroup ? groupNameInput.trim() : "";
+
+    // A private conversation that already exists is returned by the API
+    // instead of creating a duplicate: upsertItem avoids adding it twice.
+    createConversation(newUsernames, groupName)
       .then((created) => {
-        setConversations((prev) => addMessage(prev, created));
+        setConversations((prev) => upsertItem(prev, created));
         setParticipantInput("");
+        setGroupNameInput("");
         setShowNewForm(false);
         setError(null);
         selectConversation(created.id);
@@ -266,6 +328,9 @@ function ChatPage() {
                 >
                   Noms des participants (séparés par des virgules)
                 </label>
+                <p className="text-[11px] text-mist/80">
+                  Un nom : conversation privée. Plusieurs : groupe.
+                </p>
                 <input
                   id="participants"
                   type="text"
@@ -274,12 +339,23 @@ function ChatPage() {
                   placeholder="bob, charlie"
                   className="rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
                 />
+                {creatingGroup && (
+                  <input
+                    type="text"
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    placeholder="Nom du groupe (optionnel)"
+                    aria-label="Nom du groupe"
+                    maxLength={100}
+                    className="rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                  />
+                )}
                 <button
                   type="submit"
                   disabled={participantInput.trim() === ""}
                   className="cursor-pointer rounded-md bg-forest py-2 text-sm font-semibold text-white transition hover:bg-forest-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Créer
+                  {creatingGroup ? "Créer le groupe" : "Créer"}
                 </button>
               </form>
             )}
@@ -306,7 +382,7 @@ function ChatPage() {
                     )}
                   </p>
                   <p className="text-xs text-mist">
-                    {conversation.participants.length > 2
+                    {isGroup(conversation)
                       ? `Groupe · ${conversation.participants.length} membres`
                       : "Conversation privée"}
                   </p>
@@ -345,18 +421,108 @@ function ChatPage() {
                       ? conversationName(selectedConversation, currentUserId)
                       : ""}
                   </h2>
+                  {groupSelected && (
+                    <button
+                      type="button"
+                      onClick={toggleMembers}
+                      aria-expanded={showMembers}
+                      aria-label={
+                        showMembers ? "Masquer les membres" : "Voir les membres"
+                      }
+                      title={
+                        showMembers ? "Masquer les membres" : "Voir les membres"
+                      }
+                      className={`cursor-pointer rounded-md p-1.5 hover:bg-night-bg hover:text-ink ${showMembers ? "bg-night-bg text-ink" : "text-mist"}`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-5 w-5"
+                        aria-hidden="true"
+                      >
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </button>
+                  )}
+                  {!privateSelected && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        showRenameForm
+                          ? setShowRenameForm(false)
+                          : openRenameForm()
+                      }
+                      aria-label={
+                        showRenameForm ? "Annuler" : "Renommer le groupe"
+                      }
+                      title={showRenameForm ? "Annuler" : "Renommer le groupe"}
+                      className="cursor-pointer rounded-md px-2 text-lg text-mist hover:bg-night-bg hover:text-ink"
+                    >
+                      {showRenameForm ? "×" : "✎"}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setShowAddForm(!showAddForm)}
-                    aria-label={
-                      showAddForm ? "Annuler" : "Ajouter un participant"
-                    }
-                    title={showAddForm ? "Annuler" : "Ajouter un participant"}
+                    onClick={() => {
+                      setShowRenameForm(false);
+                      setShowMembers(false);
+                      setShowAddForm(!showAddForm);
+                    }}
+                    aria-label={showAddForm ? "Annuler" : addLabel}
+                    title={showAddForm ? "Annuler" : addLabel}
                     className="cursor-pointer rounded-md px-2 text-xl font-bold text-mist hover:bg-night-bg hover:text-ink"
                   >
                     {showAddForm ? "×" : "+"}
                   </button>
                 </div>
+                {showMembers && groupSelected && (
+                  <div className="pb-3">
+                    <p className="mb-2 text-xs font-semibold text-mist">
+                      {selectedConversation.participants.length} membres
+                    </p>
+                    <ul className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                      {selectedConversation.participants.map((member) => (
+                        <li
+                          key={member.id}
+                          className={`rounded-full bg-night-bg px-3 py-1 text-xs ${member.is_active === false ? "text-mist line-through" : "text-ink"}`}
+                        >
+                          {member.username}
+                          {member.id === currentUserId && " (toi)"}
+                          {member.is_active === false && (
+                            <span className="sr-only"> (a quitté Canopée)</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {showRenameForm && (
+                  <form onSubmit={handleRename} className="flex gap-2 pb-3">
+                    <input
+                      type="text"
+                      value={renameInput}
+                      onChange={(e) => setRenameInput(e.target.value)}
+                      placeholder="Nom du groupe (vide = afficher les membres)"
+                      aria-label="Nouveau nom du groupe"
+                      maxLength={100}
+                      autoFocus
+                      className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="cursor-pointer rounded-md bg-forest px-4 text-sm font-semibold text-white transition hover:bg-forest-hover"
+                    >
+                      Enregistrer
+                    </button>
+                  </form>
+                )}
 
                 {showAddForm && (
                   <form
@@ -367,7 +533,11 @@ function ChatPage() {
                       type="text"
                       value={addInput}
                       onChange={(e) => setAddInput(e.target.value)}
-                      placeholder="Nom d'utilisateur à ajouter"
+                      placeholder={
+                        privateSelected
+                          ? "Nom d'utilisateur (crée un nouveau groupe)"
+                          : "Nom d'utilisateur à ajouter"
+                      }
                       aria-label="Nom d'utilisateur à ajouter"
                       className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
                     />

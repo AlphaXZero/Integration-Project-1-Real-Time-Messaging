@@ -15,8 +15,12 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 django_asgi_app = get_asgi_application()
 
-from channels.routing import ProtocolTypeRouter, URLRouter
-from chat.routing import websocket_urlpatterns
+# These imports must stay AFTER get_asgi_application(): chat.routing imports the
+# consumer, which imports the models, and Django has to be set up first.
+# Moving them to the top makes Daphne crash at startup (E402 is ignored on purpose).
+from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+
+from chat.routing import websocket_urlpatterns  # noqa: E402
 
 application = ProtocolTypeRouter(
     {

@@ -16,10 +16,19 @@ export function sendMessage(conversationId, content) {
   });
 }
 
-export function createConversation(usernames) {
+export function createConversation(usernames, name = "") {
+  const body = { participant_usernames: usernames };
+  if (name) body.name = name;
   return authFetch("/conversations/", {
     method: "POST",
-    body: JSON.stringify({ participant_usernames: usernames }),
+    body: JSON.stringify(body),
+  });
+}
+
+export function renameConversation(conversationId, name) {
+  return authFetch(`/conversations/${conversationId}/`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
   });
 }
 

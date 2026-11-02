@@ -1,12 +1,14 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from .models import Conversation, Message, User
 from .serializers import ConversationSerializer, MessageSerializer
-from django.shortcuts import get_object_or_404
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+
 
 class ConversationListView(generics.ListCreateAPIView):
     serializer_class = ConversationSerializer
@@ -16,15 +18,63 @@ class ConversationListView(generics.ListCreateAPIView):
         return Conversation.objects.filter(participants=self.request.user)
 
     def perform_create(self, serializer):
-        new_list = serializer.validated_data["participants"] + [self.request.user]
-        conversation = serializer.save(participants=new_list)
+        user = self.request.user
+        others = [p for p in serializer.validated_data["participants"] if p != user]
 
+        if len(others) == 0:
+            raise ValidationError(
+                {"participant_usernames": "Add at least one other user."}
+            )
+
+        is_group = len(others) > 1
+
+        if not is_group:
+            existing = (
+                Conversation.objects.filter(is_group=False)
+                .filter(participants=user)
+                .filter(participants=others[0])
+                .first()
+            )
+            if existing:
+                serializer.instance = existing
+                return
+
+        conversation = serializer.save(participants=others + [user], is_group=is_group)
         channel_layer = get_channel_layer()
         for participant in conversation.participants.all():
             async_to_sync(channel_layer.group_send)(
                 f"user_{participant.id}",
                 {"type": "conversation.created", "conversation": serializer.data},
             )
+
+
+class ConversationDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, conversation_id):
+        conversation = get_object_or_404(
+            Conversation, id=conversation_id, participants=request.user
+        )
+
+        if not conversation.is_group:
+            return Response({"name": "Only groups can have a name."}, status=400)
+
+        name = request.data.get("name", "").strip()
+        if len(name) > 100:
+            return Response({"name": "100 characters maximum."}, status=400)
+
+        conversation.name = name
+        conversation.save(update_fields=["name"])
+
+        data = ConversationSerializer(conversation).data
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.updated", "conversation": data},
+            )
+
+        return Response(data)
 
 
 class MessageListView(generics.ListCreateAPIView):
@@ -74,14 +124,27 @@ class AddParticipantView(APIView):
             return Response({"username": "This field is required."}, status=400)
 
         user = get_object_or_404(User, username=username, is_active=True)
-        conversation.participants.add(user.id)
 
-        data = ConversationSerializer(conversation).data
+        if conversation.participants.filter(id=user.id).exists():
+            return Response(ConversationSerializer(conversation).data)
+
+        if conversation.is_group:
+            conversation.participants.add(user)
+            target = conversation
+            event_type = "conversation.updated"
+            status = 200
+        else:
+            target = Conversation.objects.create(is_group=True)
+            target.participants.add(*conversation.participants.all(), user)
+            event_type = "conversation.created"
+            status = 201
+
+        data = ConversationSerializer(target).data
         channel_layer = get_channel_layer()
-        for participant in conversation.participants.all():
+        for participant in target.participants.all():
             async_to_sync(channel_layer.group_send)(
                 f"user_{participant.id}",
-                {"type": "conversation.updated", "conversation": data},
+                {"type": event_type, "conversation": data},
             )
 
-        return Response(data)
+        return Response(data, status=status)
