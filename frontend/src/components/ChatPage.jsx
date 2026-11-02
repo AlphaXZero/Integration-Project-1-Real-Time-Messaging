@@ -65,6 +65,7 @@ function ChatPage() {
   const [addInput, setAddInput] = useState("");
   const [showRenameForm, setShowRenameForm] = useState(false);
   const [renameInput, setRenameInput] = useState("");
+  const [showMembers, setShowMembers] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
@@ -82,7 +83,7 @@ function ChatPage() {
     setToast(message);
     toastTimerRef.current = setTimeout(() => setToast(null), 4000);
     notificationSound.currentTime = 0;
-    notificationSound.play().catch(() => { });
+    notificationSound.play().catch(() => {});
   };
 
   const hideToast = () => {
@@ -156,6 +157,7 @@ function ChatPage() {
     setShowAddForm(false);
     setAddInput("");
     setShowRenameForm(false);
+    setShowMembers(false);
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
@@ -167,6 +169,7 @@ function ChatPage() {
     );
   const privateSelected =
     selectedConversation && !isGroup(selectedConversation);
+  const groupSelected = selectedConversation && isGroup(selectedConversation);
   const addLabel = privateSelected
     ? "Créer un groupe avec une autre personne"
     : "Ajouter un participant";
@@ -191,9 +194,14 @@ function ChatPage() {
       .catch(handleError)
       .finally(() => setSending(false));
   };
-
+  const toggleMembers = () => {
+    setShowAddForm(false);
+    setShowRenameForm(false);
+    setShowMembers(!showMembers);
+  };
   const openRenameForm = () => {
     setShowAddForm(false);
+    setShowMembers(false);
     setRenameInput(selectedConversation?.name ?? "");
     setShowRenameForm(true);
   };
@@ -358,10 +366,11 @@ function ChatPage() {
               <li key={conversation.id}>
                 <button
                   onClick={() => selectConversation(conversation.id)}
-                  className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${conversation.id === selectedId
-                    ? "border-forest bg-night-bg"
-                    : "border-transparent"
-                    }`}
+                  className={`w-full cursor-pointer border-l-2 px-4 py-3 text-left transition hover:bg-night-bg ${
+                    conversation.id === selectedId
+                      ? "border-forest bg-night-bg"
+                      : "border-transparent"
+                  }`}
                 >
                   <p className="flex items-center gap-2 font-semibold text-ink">
                     {conversationName(conversation, currentUserId)}
@@ -412,6 +421,36 @@ function ChatPage() {
                       ? conversationName(selectedConversation, currentUserId)
                       : ""}
                   </h2>
+                  {groupSelected && (
+                    <button
+                      type="button"
+                      onClick={toggleMembers}
+                      aria-expanded={showMembers}
+                      aria-label={
+                        showMembers ? "Masquer les membres" : "Voir les membres"
+                      }
+                      title={
+                        showMembers ? "Masquer les membres" : "Voir les membres"
+                      }
+                      className={`cursor-pointer rounded-md p-1.5 hover:bg-night-bg hover:text-ink ${showMembers ? "bg-night-bg text-ink" : "text-mist"}`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-5 w-5"
+                        aria-hidden="true"
+                      >
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </button>
+                  )}
                   {!privateSelected && (
                     <button
                       type="button"
@@ -433,6 +472,7 @@ function ChatPage() {
                     type="button"
                     onClick={() => {
                       setShowRenameForm(false);
+                      setShowMembers(false);
                       setShowAddForm(!showAddForm);
                     }}
                     aria-label={showAddForm ? "Annuler" : addLabel}
@@ -442,7 +482,27 @@ function ChatPage() {
                     {showAddForm ? "×" : "+"}
                   </button>
                 </div>
-
+                {showMembers && groupSelected && (
+                  <div className="pb-3">
+                    <p className="mb-2 text-xs font-semibold text-mist">
+                      {selectedConversation.participants.length} membres
+                    </p>
+                    <ul className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                      {selectedConversation.participants.map((member) => (
+                        <li
+                          key={member.id}
+                          className={`rounded-full bg-night-bg px-3 py-1 text-xs ${member.is_active === false ? "text-mist line-through" : "text-ink"}`}
+                        >
+                          {member.username}
+                          {member.id === currentUserId && " (toi)"}
+                          {member.is_active === false && (
+                            <span className="sr-only"> (a quitté Canopée)</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {showRenameForm && (
                   <form onSubmit={handleRename} className="flex gap-2 pb-3">
                     <input
@@ -511,10 +571,11 @@ function ChatPage() {
                         </span>
                       )}
                       <p
-                        className={`rounded-2xl px-4 py-2 text-sm ${isMine
-                          ? "rounded-br-sm bg-forest text-white"
-                          : "rounded-bl-sm bg-night-bg text-ink"
-                          }`}
+                        className={`rounded-2xl px-4 py-2 text-sm ${
+                          isMine
+                            ? "rounded-br-sm bg-forest text-white"
+                            : "rounded-bl-sm bg-night-bg text-ink"
+                        }`}
                       >
                         {message.content}
                       </p>
