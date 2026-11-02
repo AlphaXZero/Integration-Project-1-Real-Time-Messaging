@@ -66,6 +66,10 @@
 )[Ce carnet est individuel : il décrit *mon* usage de l'IA. Valentin décrit le sien dans son propre carnet.]
 
 J'ai demandé à Claude de rédiger une première version de ce carnet à partir de notre conversation, puisqu'elle contient tout l'historique de mon utilisation. Je l'ai ensuite vérifiée, corrigée et complétée.
+
+IMPORTANT (écrit par moi-même) : j'écris ici un résumé qui exprime mon ressenti. Comme dit plus loin, pour le back, j'ai utilisé l'IA seulement comme un guide la plupart du temps, en essayant de bien comprendre ce que je faisais (il m'est arrivé quelques fois de faiblir et de demander la solution). J'ai ainsi bien compris comment marchait le workflow Git, les requêtes HTTP, comment implémenter des routes dans Django, comment on fetch dans le front, et comment tout fonctionnait dans sa globalité. Néanmoins, l'IA m'a quand même guidé en me répondant sur la manière de développer, que ce soit en donnant des idées d'architecture ou l'ordre dans lequel écrire le code. Je pense que j'aurais du mal à refaire certaines choses moi-même, c'est pourquoi j'ai écrit (toujours avec son aide) un devlog qui décrit les étapes faites, ainsi que des cheatsheets, pour pouvoir tout refaire moi-même un jour.
+
+Je trouve que c'est un bon outil auquel il est tentant de tout laisser faire (par exemple, le rapport et ce carnet ont en grande partie été écrits par lui), et c'est important pour être compétitif dans le monde du travail. Mais je ne sais pas si, dans le cadre d'un cours, c'est toujours utile de lui laisser autant de place juste pour aller plus vite. Pour les prochains projets, je tâcherai de me limiter encore plus afin de pouvoir reproduire ce que je fais plus simplement. Même si je pense qu'à force de lui demander la même chose on finit par apprendre, je pense que ça n'ira jamais aussi vite que la recherche par soi-même.
 // ============================================================
 = Partie 1 — Déclaration d'usage
 // ============================================================
