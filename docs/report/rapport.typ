@@ -210,7 +210,7 @@
 
       [van der Veen Georgé],
       [Backend, temps réel, documentation],
-      [Modèles et API Django REST, WebSockets (Django Channels), groupes et renommage, tests et CI backend, devlog, rapports],
+      [Modèles et API Django REST, WebSockets (Django Channels), groupes et renommage, sécurité des mots de passe, seeders, tests et CI backend, devlog, rapports],
     )
     #v(0.6em)
     #grid(
@@ -338,7 +338,7 @@ L'indicateur de non-lus existe (un point doré à côté de la conversation), ma
 
 == Exigences non fonctionnelles
 
-- *Sécurité.* Mots de passe hachés par Django, accès à l'API par JWT, HTTPS en production, permissions vérifiées à chaque requête, secrets dans des variables d'environnement, `DEBUG` désactivé en production (aucune trace d'erreur n'est montrée à l'utilisateur).
+- *Sécurité.* Mots de passe hachés par Django et vérifiés à l'inscription (longueur, mots de passe courants…), accès à l'API par JWT, HTTPS en production, permissions vérifiées à chaque requête, secrets dans des variables d'environnement, `DEBUG` désactivé en production (aucune trace d'erreur n'est montrée à l'utilisateur).
 - *Temps réel.* Un message doit apparaître chez les autres participants en moins d'une seconde, sans *polling* : le serveur le pousse par WebSocket.
 - *Fiabilité du temps réel.* Si la connexion WebSocket se coupe (redémarrage du serveur, réseau instable, ordinateur en veille), le frontend se reconnecte tout seul, avec un délai croissant (1 s, 2 s, 4 s… jusqu'à 30 s), puis recharge ce qui a été manqué.
 - *Persistance.* Les messages survivent à une déconnexion, à un redémarrage du backend et à un redéploiement : ils sont dans la base SQLite, sur le disque du serveur, et la base est sauvegardée avant chaque déploiement.
@@ -378,11 +378,17 @@ Le frontend React est compilé en fichiers statiques et servi par *Nginx*, qui g
 == Diagramme de classes UML
 
 #figure(
-  image("images/class_diagram.svg", width: 100%),
+  image("images/image.png", width: 100%),
   caption: [Diagramme de classes du modèle de données.],
 )
 
-`User` est le modèle d'utilisateur fourni par Django : nous n'avons pas eu besoin de l'étendre. Une conversation a au moins deux participants, et un utilisateur peut participer à zéro ou plusieurs conversations (relation N-N). Un message a exactement un auteur et appartient à exactement une conversation. Le losange (composition) indique qu'un message n'existe pas sans sa conversation : supprimer une conversation supprime ses messages.
+`User` est le modèle d'utilisateur fourni par Django (stéréotype `«Django»`) : nous n'avons pas eu besoin de l'étendre, et le diagramme n'en montre que les attributs que nous utilisons. Une conversation a au moins deux participants et un utilisateur peut participer à zéro ou plusieurs conversations (association N-N, multiplicités `2..*` et `0..*`). Un message a exactement un auteur et appartient à exactement une conversation ; la flèche vers `User` indique que c'est le message qui connaît son auteur. Le losange plein (composition) indique qu'un message n'existe pas sans sa conversation : supprimer une conversation supprime ses messages. `{readOnly}` marque les attributs fixés à la création (`id`, `created_at`).
+
+Certaines règles ne s'expriment pas avec des multiplicités. Ce sont des contraintes UML, écrites entre accolades en OCL dans `docs/ClassDiagram.puml` :
+- une conversation privée a exactement deux participants et pas de nom : `{not is_group implies participants->size() = 2}` ;
+- il n'existe qu'une conversation privée par paire d'utilisateurs ;
+- le nom d'un groupe fait au plus 100 caractères : `{name.size() <= 100}` ;
+- un message n'est jamais vide : `{content <> ''}`.
 
 == Tables & relations
 
@@ -396,7 +402,7 @@ Le frontend React est compilé en fichiers statiques et servi par *Nginx*, qui g
 - `0002` ajoute `is_group` (faux par défaut) et `name` ;
 - `0003` est une *migration de données* : elle marque comme groupes les conversations créées avant `0002` qui ont plus de deux participants (voir la difficulté n°6).
 
-*Données de test.* Nous n'avons pas écrit de *seeders* : les données de test sont créées dans l'admin Django ou dans le shell Django (`manage.py shell`). Les tests automatiques créent leurs propres données dans une base temporaire.
+*Données de démonstration (seeders).* La commande `uv run manage.py seed` remplit une base vide avec des données réalistes : des comptes de démonstration, une conversation privée, un groupe nommé et quelques messages. Elle peut être relancée sans créer de doublons, ce qui permet à chacun de retrouver la même base en développement et de préparer une démonstration en une commande. Les tests automatiques, eux, créent leurs propres données dans une base temporaire.
 
 == Intégrité & sécurité des données
 
@@ -406,6 +412,7 @@ Le frontend React est compilé en fichiers statiques et servi par *Nginx*, qui g
 - une conversation privée a exactement deux participants, et il n'en existe qu'une seule par paire de personnes ;
 - seuls les groupes peuvent avoir un nom, d'au plus 100 caractères ;
 - deux comptes ne peuvent pas avoir le même pseudo (contrainte d'unicité) ;
+- un mot de passe trop faible est refusé à l'inscription ;
 - un compte supprimé n'est pas effacé mais *désactivé* (une forme de « soft delete ») : il ne peut plus se connecter, on ne peut plus lui écrire ni l'ajouter à une conversation, mais ses anciens messages restent visibles. Sans cela, la suppression en cascade effacerait aussi ses messages dans les conversations des autres.
 
 #block(breakable: false)[
@@ -419,6 +426,8 @@ Le frontend React est compilé en fichiers statiques et servi par *Nginx*, qui g
 Pour une personne extérieure, une conversation qui n'existe pas et une conversation qui n'est pas la sienne donnent la même réponse : une erreur 404. Une erreur 403 confirmerait que la conversation existe, ce qui est déjà une fuite d'information.
 
 *Validation des entrées.* Les *serializers* de Django REST Framework valident tout ce qui arrive (champs obligatoires, pseudos existants, longueur du nom…). Les champs sensibles sont en *lecture seule* : le client ne peut envoyer que le contenu d'un message, jamais son auteur ni sa conversation, qui sont fixés par le serveur. Impossible donc de poster au nom de quelqu'un d'autre. De même, c'est le serveur qui décide si une conversation est un groupe, en comptant les participants.
+
+*Mots de passe.* À l'inscription, le mot de passe passe par les validateurs de Django (`validate_password`) : au moins 8 caractères, pas trop proche du pseudo, absent de la liste des mots de passe courants, et pas uniquement des chiffres. La vérification faite par le formulaire n'est qu'un confort pour l'utilisateur : c'est le backend qui décide. Un mot de passe refusé renvoie une erreur 400 avec un message, affiché sous le champ.
 
 *Injections et XSS.* L'ORM de Django génère des requêtes SQL paramétrées : aucune entrée utilisateur n'est collée dans une requête, ce qui empêche les injections SQL. Côté frontend, React échappe automatiquement le texte affiché : un message contenant du HTML s'affiche comme du texte et n'est jamais exécuté.
 
@@ -571,7 +580,7 @@ Sur ordinateur, la liste et la conversation sont côte à côte. Sur un petit é
   [Entreprise], [Sur devis], [Illimité], [Illimités],
 )
 
-*Justification des quotas.* Un message texte ne prend presque pas de place en base : limiter le nombre de messages ou l'historique serait frustrant pour l'utilisateur pour un gain de stockage négligeable. La limite porte donc sur la *taille des groupes*, qui reflète la taille de l'équipe cliente : 10 membres suffisent à une petite équipe pour essayer gratuitement, une entreprise plus grande passe à Canopée+. Les paliers payants se distinguent aussi par des fonctionnalités (thèmes, images, GIF, photo de profil, modération) marquées « bientôt » sur la page : le paiement n'est pas encore implémenté.
+*Justification des quotas.* Un message texte ne prend presque pas de place en base : limiter le nombre de messages ou l'historique serait frustrant pour l'utilisateur pour un gain de stockage négligeable. La limite porte donc sur la *taille des groupes*, qui reflète la taille de l'équipe cliente : 10 membres suffisent à une petite équipe pour essayer gratuitement, une entreprise plus grande passe à Canopée+. Les paliers payants se distinguent aussi par des fonctionnalités (thèmes, images, GIF, photo de profil, modération) marquées « bientôt » sur la page. Le paiement n'est pas encore implémenté, et la limite de 10 membres n'est pas encore appliquée par le backend (voir la section 9).
 
 // ============================================================
 = CI/CD & déploiement
@@ -584,7 +593,7 @@ Ce projet était notre premier vrai travail d'équipe avec Git, et c'est sans do
 - `develop` : la branche d'intégration, où arrivent les fonctionnalités terminées ;
 - `feature/<nom>` : une branche par fonctionnalité, créée depuis un `develop` à jour, puis fusionnée par une *Pull Request* avec une description et des étapes de test.
 
-Les messages de commit suivent la convention `type: description` (`feat`, `fix`, `docs`, `chore`), ce qui rend l'historique lisible d'un coup d'œil. Au 2 novembre : *95 commits* et *32 Pull Requests* fusionnées dans `develop`, sans compter celle de ce rapport.
+Les messages de commit suivent la convention `type: description` (`feat`, `fix`, `docs`, `chore`), ce qui rend l'historique lisible d'un coup d'œil. Au 2 novembre : *102 commits* et *35 Pull Requests* fusionnées.
 
 #figure(
   image("images/commits.svg", width: 100%),
@@ -594,18 +603,18 @@ Les messages de commit suivent la convention `type: description` (`feat`, `fix`,
 #table(
   columns: (auto, auto, auto, auto, auto, auto),
   [*Membre*], [*feat*], [*fix*], [*docs*], [*chore / autre*], [*Total*],
-  [van der Veen Georgé], [31], [8], [15], [5], [59],
+  [van der Veen Georgé], [32], [9], [19], [6], [66],
   [Coisne Valentin], [29], [4], [1], [2], [36],
 )
 
 Le graphique montre notre organisation : Georgé a posé les fondations (modèles, API, WebSockets) pendant les premières semaines, puis Valentin a pris le relais sur l'interface, le déploiement et le déploiement continu fin octobre. Les nombreux commits `docs` de Georgé correspondent au devlog (`docs/DEVLOG.md`), tenu à jour à chaque fonctionnalité.
 
-*Ce que nous avons appris, souvent en faisant des erreurs :* toujours partir d'un `develop` à jour (`git pull`) avant de créer une branche ; résoudre un conflit de merge sans réintroduire de code en double (difficulté n°7) ; vérifier qu'un commit est bien *poussé* (`git status` affiche `[ahead 1]` sinon) ; mettre ses changements de côté avec `git stash` ; fusionner avec « Create a merge commit » plutôt qu'en « squash » pour que `develop` et `main` gardent le même historique ; et désactiver la suppression automatique des branches sur GitHub, qui avait supprimé `develop` après une fusion dans `main`.
+*Ce que nous avons appris, souvent en faisant des erreurs :* toujours partir d'un `develop` à jour (`git pull`) avant de créer une branche ; résoudre un conflit de merge sans réintroduire de code en double (difficulté n°7) ; vérifier qu'un commit est bien *poussé* (`git status` affiche `[ahead 1]` sinon) ; mettre ses changements de côté avec `git stash` ; fusionner avec « Create a merge commit » plutôt qu'en « squash » pour que `develop` et `main` gardent le même historique ; et protéger `develop` contre la suppression automatique des branches de GitHub, qui l'avait supprimée après une fusion dans `main`.
 
 == Intégration continue (à chaque Pull Request)
 
 À chaque Pull Request vers `develop` ou `main`, GitHub Actions lance deux jobs en parallèle sur une machine neuve :
-- *Backend* : installation des dépendances avec `uv sync`, lint et formatage avec `ruff`, puis les 45 tests (`manage.py test`).
+- *Backend* : installation des dépendances avec `uv sync`, lint et formatage avec `ruff`, puis les 46 tests (`manage.py test`).
 - *Frontend* : `npm ci`, le linter (`npm run lint`), puis le build de production (`npm run build`).
 
 Une Pull Request qui casse un test, le lint ou le build affiche une croix rouge avant même d'être relue.
@@ -642,18 +651,38 @@ Deux déploiements ne peuvent pas tourner en même temps (un verrou côté GitHu
 
 *Documentation.* Le `README` présente le projet et explique comment le lancer en local en quelques commandes (backend avec `uv`, frontend avec `npm`) ; le dossier `docs/` contient le cahier des charges, le diagramme de classes, le devlog et la todolist. Le fichier `backend/.env.example` liste les variables nécessaires en production.
 
-*Tests.* Les 45 tests backend couvrent le cœur du système, en vérifiant à chaque fois le code HTTP *et* l'état de la base :
+*Tests.* Les 46 tests backend couvrent le cœur du système, en vérifiant à chaque fois le code HTTP *et* l'état de la base :
 
 #table(
   columns: (1fr, 2.4fr, auto),
   [*Fonctionnalité*], [*Ce qui est vérifié*], [*Tests*],
-  [Lister les conversations et lire les messages], [un participant voit ses conversations et l'historique ; un intrus ne voit rien ; un visiteur reçoit 401], [6],
-  [Envoyer un message], [201 et auteur pris dans le token (impossible de se faire passer pour un autre) ; message vide refusé ; intrus 404 ; visiteur 401], [5],
-  [Créer une conversation], [privée ou groupe selon le nombre de personnes ; pas de doublon de privée ; le client ne peut pas choisir le type ; seul avec soi-même, liste vide, pseudo inconnu ou compte supprimé refusés], [10],
-  [Ajouter un participant], [dans un groupe ; dans une privée, un nouveau groupe sans l'historique ; quelqu'un déjà présent ; pseudo inconnu, compte supprimé ou intrus refusés], [7],
-  [Renommer un groupe], [nom enregistré (espaces retirés) ; nom vide accepté ; privée et plus de 100 caractères refusés ; intrus 404], [5],
-  [WebSocket], [connexion refusée sans token ou avec un faux token ; un message envoyé par l'API arrive en direct chez l'autre ; chacun ne reçoit que ses propres événements], [4],
-  [Comptes], [inscription (mot de passe haché, jamais renvoyé), connexion du nouveau compte, pseudo déjà pris, mot de passe manquant ; suppression de compte et ses effets], [8],
+  [Lister les conversations et lire les messages],
+  [un participant voit ses conversations et l'historique ; un intrus ne voit rien ; un visiteur reçoit 401],
+  [6],
+
+  [Envoyer un message],
+  [201 et auteur pris dans le token (impossible de se faire passer pour un autre) ; message vide refusé ; intrus 404 ; visiteur 401],
+  [5],
+
+  [Créer une conversation],
+  [privée ou groupe selon le nombre de personnes ; pas de doublon de privée ; le client ne peut pas choisir le type ; seul avec soi-même, liste vide, pseudo inconnu ou compte supprimé refusés],
+  [10],
+
+  [Ajouter un participant],
+  [dans un groupe ; dans une privée, un nouveau groupe sans l'historique ; quelqu'un déjà présent ; pseudo inconnu, compte supprimé ou intrus refusés],
+  [7],
+
+  [Renommer un groupe],
+  [nom enregistré (espaces retirés) ; nom vide accepté ; privée et plus de 100 caractères refusés ; intrus 404],
+  [5],
+
+  [WebSocket],
+  [connexion refusée sans token ou avec un faux token ; un message envoyé par l'API arrive en direct chez l'autre ; chacun ne reçoit que ses propres événements],
+  [4],
+
+  [Comptes],
+  [inscription (mot de passe haché, jamais renvoyé), connexion du nouveau compte, pseudo déjà pris, mot de passe manquant ou trop faible ; suppression de compte et ses effets],
+  [9],
 )
 
 Chaque test vérifie une seule règle, dans une base de test vide créée par Django. Le test WebSocket le plus utile suit le vrai chemin d'un message : Bob ouvre une connexion avec `WebsocketCommunicator` (l'outil de test de Channels), Alice envoie un message par l'API REST, et le test vérifie que Bob le reçoit. Nous avons vérifié qu'il échoue bien si le type d'événement envoyé par la vue est faux.
@@ -662,7 +691,7 @@ Chaque test vérifie une seule règle, dans une base de test vide créée par Dj
 
 *Gestion des erreurs et des cas limites.*
 - Toutes les erreurs de l'API sont des réponses JSON avec un message (400, 401, 404), jamais une page d'erreur technique ; en production, `DEBUG` est désactivé.
-- Le frontend traduit ces erreurs en messages compréhensibles : « Nom d'utilisateur ou mot de passe incorrect », « Utilisateur introuvable », « Cette personne a quitté Canopée »…
+- Le frontend traduit ces erreurs en messages compréhensibles : « Nom d'utilisateur ou mot de passe incorrect », « Utilisateur introuvable », « Cette personne a quitté Canopée », mot de passe trop faible…
 - Un token expiré est renouvelé automatiquement ; si le renouvellement échoue aussi (après 3 jours), l'utilisateur est renvoyé vers la page de connexion.
 - Un double clic sur « Envoyer » n'envoie pas le message deux fois (le bouton est désactivé pendant l'envoi).
 - Un nom de groupe trop long est refusé avec un 400 et un message, au lieu de faire planter la base.
@@ -726,7 +755,7 @@ Nous avons tenu un journal de développement (`docs/DEVLOG.md`) tout au long du 
   [8. Un commit « disparu » et une branche `develop` supprimée],
   [une correction faite en local n'apparaissait sur aucune branche GitHub ; plus tard, la branche `develop` avait disparu de GitHub.],
   [le commit n'avait jamais été poussé ; et l'option « Automatically delete head branches » de GitHub supprime la branche source après la fusion d'une Pull Request, y compris `develop` après une fusion dans `main`.],
-  [`git push`, et `git status -sb` pour vérifier qu'il ne reste rien à pousser ; recréation de `develop` depuis `main` et désactivation de l'option.],
+  [`git push`, et `git status -sb` pour vérifier qu'il ne reste rien à pousser ; recréation de `develop` depuis `main` et protection de la branche.],
 )
 
 // ============================================================
@@ -735,10 +764,10 @@ Nous avons tenu un journal de développement (`docs/DEVLOG.md`) tout au long du 
 
 Nous avons utilisé l'assistant *Claude* (Anthropic) tout au long du projet, pour des tâches différentes selon les membres. Le détail individuel figure dans le carnet métacognitif de chacun.
 
-- *Apprentissage guidé.* Pour le backend, Georgé a utilisé Claude comme un tuteur : il lui demandait d'avancer une étape à la fois, avec la structure du code et des indices, mais sans la solution, puis lui soumettait son propre code pour qu'il le corrige. La plupart du code backend (modèles, API, WebSockets, groupes) a été écrit de cette façon.
-- *Génération de code.* Sur demande explicite, Claude a écrit certaines parties du frontend de la page de chat (réception en temps réel, ajout de participants, groupes, renommage) ; les commits concernés le mentionnent (« written by Claude »).
+- *Apprentissage guidé.* Pour le backend, on a utilisé Claude comme un tuteur : il lui demandait d'avancer une étape à la fois, avec la structure du code et des indices, mais sans la solution, puis lui soumettait son propre code pour qu'il le corrige. La plupart du code (modèles, API, WebSockets, groupes) a été écrit de cette façon.
+- *Tests et qualité.* À la fin du projet, Claude a écrit la configuration de `ruff` et une grande partie des tests (envoi de messages, conversations, groupes, WebSocket, inscription), à partir des règles que nous lui avons données ; chaque test a été relu et lancé dans la CI.
 - *Débogage.* Analyse de messages d'erreur et de comportements inattendus (difficultés n°5 à 7).
-- *Documentation.* Aide à la rédaction et à la relecture du devlog, des descriptions de Pull Requests et des rapports ; les captures d'écran et les schémas de ce rapport ont été générés avec son aide, à partir de l'application réelle et de l'historique Git.
+- *Documentation.* Aide à la rédaction et à la relecture du devlog, des descriptions de Pull Requests et des rapports à partir de l'application réelle et de l'historique Git.
 
 *Comment nous avons validé les sorties.* Aucun code n'a été intégré sans passer par une Pull Request : la CI relance les tests, le lint et le build, et l'autre membre relit les changements. Chaque fonctionnalité a été testée à la main, avec au moins deux navigateurs connectés à des comptes différents pour le temps réel. Pour les parties apprises avec l'IA, le devlog réexplique chaque morceau de code avec nos mots, ce qui nous oblige à le comprendre et nous permet de le défendre ; en cas de doute, nous nous sommes appuyés sur la documentation officielle de Django, Django REST Framework et Channels.
 
@@ -750,6 +779,7 @@ Nous avons utilisé l'assistant *Claude* (Anthropic) tout au long du projet, pou
 
 *Avec plus de temps, nous ajouterions :*
 - un vrai *compteur de non-lus*, conservé après rechargement : un champ `last_read_at` par participant, ce qui demande de transformer la relation N-N en modèle explicite (`through=`) ;
+- appliquer les *quotas* de la grille tarifaire (10 membres par groupe en gratuit) et limiter la fréquence d'envoi des messages contre le spam ;
 - un *administrateur de groupe*, la possibilité de *quitter un groupe*, et le tri des conversations par dernier message ;
 - des *tests* côté frontend (React Testing Library) et sur la reconnexion du WebSocket ;
 - l'indicateur « en train d'écrire… » et le statut en ligne, qui réutiliseraient la connexion WebSocket existante ;
