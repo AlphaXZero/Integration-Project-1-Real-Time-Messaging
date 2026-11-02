@@ -106,6 +106,7 @@
   )
   show table: set par(justify: false, first-line-indent: 0pt)
   show table: set text(size: 9.5pt)
+  show table: it => block(breakable: false, it)
 
   show figure.caption: it => {
     set text(size: 9.5pt, style: "italic", fill: luma(70))
@@ -205,7 +206,7 @@
       [*Nom & prénom*], [*Rôle(s) dans l'équipe*], [*Contribution principale*],
       [Coisne Valentin],
       [Frontend, VPS & déploiement],
-      [Pages React (accueil, tarifs, équipe, connexion, inscription, chat, profil), CI front, Nginx/systemd, déploiement continu, refresh du token, toast, suppression de compte],
+      [Pages React (accueil, tarifs, équipe, connexion, inscription, chat, profil), CI front, Nginx/systemd, déploiement continu, refresh du token, toast, suppression de compte, liste des membres d'un groupe],
 
       [van der Veen Georgé],
       [Backend, temps réel, documentation],
@@ -242,7 +243,7 @@ Le second objectif, tout aussi important pour nous, était d'apprendre à travai
   [*Fonctionnalité*], [*État*],
   [Inscription, connexion, déconnexion (JWT), suppression de compte], ok,
   [Conversations privées (1:1) et de groupe, sans doublon de conversation privée], ok,
-  [Ajout d'un participant, nom de groupe et renommage], ok,
+  [Ajout d'un participant, nom de groupe, renommage et liste des membres], ok,
   [Messages, nouvelles conversations et changements reçus en temps réel], ok,
   [Notifications : toast avec son et indicateur « non lu » par conversation], ok,
   [Compteur *chiffré* de non-lus, conservé après rechargement], partiel,
@@ -349,7 +350,7 @@ L'indicateur de non-lus existe (un point doré à côté de la conversation), ma
 
 Nous avons préféré soigner le MVP plutôt que commencer une grosse fonctionnalité optionnelle (co-édition, fichiers, chatbot…) sans pouvoir la finir. Les extensions que nous avons ajoutées ont toutes une valeur directe pour une équipe en entreprise :
 
-- *Gestion des groupes.* Nommer et renommer un groupe, ajouter un collègue. Ajouter quelqu'un à une conversation *privée* ne la modifie pas : cela crée un *nouveau groupe*, pour que personne ne lise un échange privé auquel il n'a pas participé (même comportement que Messenger ou Teams).
+- *Gestion des groupes.* Nommer et renommer un groupe, voir ses membres, ajouter un collègue. Ajouter quelqu'un à une conversation *privée* ne la modifie pas : cela crée un *nouveau groupe*, pour que personne ne lise un échange privé auquel il n'a pas participé (même comportement que Messenger ou Teams).
 - *Suppression de compte.* Indispensable en entreprise (départ d'un employé) et pour le RGPD. Le compte est désactivé, mais ses messages restent lisibles par les autres, pour ne pas casser l'historique des conversations.
 - *Notifications enrichies.* Un toast avec un son quand un message arrive dans une autre conversation, pour ne rien manquer en travaillant.
 
@@ -520,6 +521,11 @@ Sur ordinateur, la liste et la conversation sont côte à côte. Sur un petit é
 )
 
 #figure(
+  image("images/members.png", width: 90%),
+  caption: [Le bouton « membres » affiche les participants du groupe ; un compte supprimé apparaît barré.],
+)
+
+#figure(
   image("images/add_participant_form.png", width: 80%),
   caption: [Dans la conversation privée avec Sophie, le « + » propose de créer un groupe : ajout de Lucas…],
 )
@@ -578,7 +584,7 @@ Ce projet était notre premier vrai travail d'équipe avec Git, et c'est sans do
 - `develop` : la branche d'intégration, où arrivent les fonctionnalités terminées ;
 - `feature/<nom>` : une branche par fonctionnalité, créée depuis un `develop` à jour, puis fusionnée par une *Pull Request* avec une description et des étapes de test.
 
-Les messages de commit suivent la convention `type: description` (`feat`, `fix`, `docs`, `chore`), ce qui rend l'historique lisible d'un coup d'œil. En tout, *93 commits* et *31 Pull Requests* fusionnées.
+Les messages de commit suivent la convention `type: description` (`feat`, `fix`, `docs`, `chore`), ce qui rend l'historique lisible d'un coup d'œil. Au 2 novembre : *95 commits* et *32 Pull Requests* fusionnées dans `develop`, sans compter celle de ce rapport.
 
 #figure(
   image("images/commits.svg", width: 100%),
@@ -588,8 +594,8 @@ Les messages de commit suivent la convention `type: description` (`feat`, `fix`,
 #table(
   columns: (auto, auto, auto, auto, auto, auto),
   [*Membre*], [*feat*], [*fix*], [*docs*], [*chore / autre*], [*Total*],
-  [van der Veen Georgé], [31], [8], [14], [5], [58],
-  [Coisne Valentin], [28], [4], [1], [2], [35],
+  [van der Veen Georgé], [31], [8], [15], [5], [59],
+  [Coisne Valentin], [29], [4], [1], [2], [36],
 )
 
 Le graphique montre notre organisation : Georgé a posé les fondations (modèles, API, WebSockets) pendant les premières semaines, puis Valentin a pris le relais sur l'interface, le déploiement et le déploiement continu fin octobre. Les nombreux commits `docs` de Georgé correspondent au devlog (`docs/DEVLOG.md`), tenu à jour à chaque fonctionnalité.
@@ -633,6 +639,8 @@ Deux déploiements ne peuvent pas tourner en même temps (un verrou côté GitHu
 // ============================================================
 
 *Lint et formatage.* Le frontend est vérifié par `oxlint` dans la CI. Côté Python, le code est formaté automatiquement par l'éditeur ; nous n'avons pas encore ajouté de linter Python à la CI.
+
+*Documentation.* Le `README` présente le projet et explique comment le lancer en local en quelques commandes (backend avec `uv`, frontend avec `npm`) ; le dossier `docs/` contient le cahier des charges, le diagramme de classes, le devlog et la todolist. Le fichier `backend/.env.example` liste les variables nécessaires en production.
 
 *Tests.* Les 10 tests backend portent sur les points les plus sensibles : les *droits d'accès* et la *suppression de compte*.
 
