@@ -47,6 +47,35 @@ class ConversationListView(generics.ListCreateAPIView):
             )
 
 
+class ConversationDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, conversation_id):
+        conversation = get_object_or_404(
+            Conversation, id=conversation_id, participants=request.user
+        )
+
+        if not conversation.is_group:
+            return Response({"name": "Only groups can have a name."}, status=400)
+
+        name = request.data.get("name", "").strip()
+        if len(name) > 100:
+            return Response({"name": "100 characters maximum."}, status=400)
+
+        conversation.name = name
+        conversation.save(update_fields=["name"])
+
+        data = ConversationSerializer(conversation).data
+        channel_layer = get_channel_layer()
+        for participant in conversation.participants.all():
+            async_to_sync(channel_layer.group_send)(
+                f"user_{participant.id}",
+                {"type": "conversation.updated", "conversation": data},
+            )
+
+        return Response(data)
+
+
 class MessageListView(generics.ListCreateAPIView):
     serializer_class = MessageSerializer
     permission_classes = [permissions.IsAuthenticated]
