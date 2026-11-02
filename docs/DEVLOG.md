@@ -1164,13 +1164,17 @@ Add a participant:
 
 ---
 
-## Still to do
-- Persistent unread counter per conversation (`last_read_at` per participant).
-- Password strength check on registration + tests for `register`.
-- Tests for the `POST` endpoints (send a message, create a conversation, add a participant) and for the private/group rules.
-- Frontend for groups: show the group name, open the new group when adding someone to a private conversation.
-- Redis for the channel layer (production).
-- PostgreSQL at deployment (SQLite in development).
-- Nice to have: `GET /api/users/` for username autocompletion.
+## Ruff (lint and format)
 
-Done by Valentin in the meantime: secrets and settings read from a `.env` file (`DJANGO_SECRET_KEY`, `DJANGO_DEBUG`...), Nginx + systemd configuration for the VPS, automatic token refresh, WebSocket reconnection, message toast with sound.
+Run from `backend/`.
+
+```bash
+uv run ruff check --fix .      # fix what can be fixed automatically
+uv run ruff format .           # format all files
+uv run ruff check .            # check that nothing is left
+uv run ruff format --check .   # check formatting without changing anything (what the CI runs)
+uv run ruff rule E402          # explain a rule
+```
+
+- `check` finds errors (unused imports, undefined names, import order); `format` rewrites the layout.
+- Ignore one rule on one line, on purpose and with a comment: `# noqa: E402` (used in `config/asgi.py`: those imports must stay after `get_asgi_application()`, otherwise Daphne crashes).
