@@ -25,6 +25,13 @@ export function createConversation(usernames, name = "") {
   });
 }
 
+export function renameConversation(conversationId, name) {
+  return authFetch(`/conversations/${conversationId}/`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function addParticipant(conversationId, username) {
   return authFetch(`/conversations/${conversationId}/participants/`, {
     method: "POST",

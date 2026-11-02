@@ -4,6 +4,7 @@ import {
   addParticipant,
   getConversations,
   getMessages,
+  renameConversation,
   sendMessage,
   connectChat,
   createConversation,
@@ -62,6 +63,8 @@ function ChatPage() {
   const selectedIdRef = useRef(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addInput, setAddInput] = useState("");
+  const [showRenameForm, setShowRenameForm] = useState(false);
+  const [renameInput, setRenameInput] = useState("");
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
@@ -152,6 +155,7 @@ function ChatPage() {
     setSelectedId(id);
     setShowAddForm(false);
     setAddInput("");
+    setShowRenameForm(false);
     setUnread((prev) => prev.filter((conversationId) => conversationId !== id));
   };
   const selectedConversation = conversations.find((c) => c.id === selectedId);
@@ -186,6 +190,31 @@ function ChatPage() {
       })
       .catch(handleError)
       .finally(() => setSending(false));
+  };
+
+  const openRenameForm = () => {
+    setShowAddForm(false);
+    setRenameInput(selectedConversation?.name ?? "");
+    setShowRenameForm(true);
+  };
+
+  // An empty name removes it: the group shows its members again.
+  const handleRename = (e) => {
+    e.preventDefault();
+
+    renameConversation(selectedId, renameInput.trim())
+      .then((updated) => {
+        setConversations((prev) => upsertItem(prev, updated));
+        setShowRenameForm(false);
+        setError(null);
+      })
+      .catch((err) => {
+        if (err.name) {
+          setError("Nom invalide (100 caractères maximum).");
+        } else {
+          handleError(err);
+        }
+      });
   };
 
   const handleAddParticipant = (e) => {
@@ -383,9 +412,29 @@ function ChatPage() {
                       ? conversationName(selectedConversation, currentUserId)
                       : ""}
                   </h2>
+                  {!privateSelected && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        showRenameForm
+                          ? setShowRenameForm(false)
+                          : openRenameForm()
+                      }
+                      aria-label={
+                        showRenameForm ? "Annuler" : "Renommer le groupe"
+                      }
+                      title={showRenameForm ? "Annuler" : "Renommer le groupe"}
+                      className="cursor-pointer rounded-md px-2 text-lg text-mist hover:bg-night-bg hover:text-ink"
+                    >
+                      {showRenameForm ? "×" : "✎"}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setShowAddForm(!showAddForm)}
+                    onClick={() => {
+                      setShowRenameForm(false);
+                      setShowAddForm(!showAddForm);
+                    }}
                     aria-label={showAddForm ? "Annuler" : addLabel}
                     title={showAddForm ? "Annuler" : addLabel}
                     className="cursor-pointer rounded-md px-2 text-xl font-bold text-mist hover:bg-night-bg hover:text-ink"
@@ -393,6 +442,27 @@ function ChatPage() {
                     {showAddForm ? "×" : "+"}
                   </button>
                 </div>
+
+                {showRenameForm && (
+                  <form onSubmit={handleRename} className="flex gap-2 pb-3">
+                    <input
+                      type="text"
+                      value={renameInput}
+                      onChange={(e) => setRenameInput(e.target.value)}
+                      placeholder="Nom du groupe (vide = afficher les membres)"
+                      aria-label="Nouveau nom du groupe"
+                      maxLength={100}
+                      autoFocus
+                      className="min-w-0 flex-1 rounded-md border border-night-border bg-night-bg px-3 py-2 text-sm text-ink placeholder:text-mist/60 focus:border-forest focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="cursor-pointer rounded-md bg-forest px-4 text-sm font-semibold text-white transition hover:bg-forest-hover"
+                    >
+                      Enregistrer
+                    </button>
+                  </form>
+                )}
 
                 {showAddForm && (
                   <form
