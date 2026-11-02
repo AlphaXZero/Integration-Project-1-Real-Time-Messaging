@@ -11,10 +11,10 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
-from datetime import timedelta
 
 
 def env_list(name, default=""):

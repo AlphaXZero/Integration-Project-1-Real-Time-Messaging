@@ -1,9 +1,10 @@
 from django.urls import path
+
 from .views import (
-    ConversationListView,
-    MessageListView,
     AddParticipantView,
     ConversationDetailView,
+    ConversationListView,
+    MessageListView,
 )
 
 urlpatterns = [

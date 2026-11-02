@@ -73,7 +73,7 @@ In development, the frontend calls the API on `http://localhost:8000/api` and th
 
 **Checks** (the same ones as the CI)
 
-    cd backend && uv run manage.py test
+    cd backend && uv run ruff check . && uv run ruff format --check . && uv run manage.py test
     cd frontend && npm run lint && npm run build
 
 ## API
@@ -94,7 +94,7 @@ Every endpoint except registration and login requires `Authorization: Bearer <ac
 
 ## Deployment
 
-- **CI** (`.github/workflows/ci.yml`), on every pull request to `develop` or `main`: backend tests, frontend lint and build.
+- **CI** (`.github/workflows/ci.yml`), on every pull request to `develop` or `main`: backend lint and format (`ruff`) and tests, frontend lint and build.
 - **CD** (`.github/workflows/cd.yml`), on every push to `main`: the same checks, then an SSH connection to the VPS that runs [`deploy/deploy.sh`](deploy/deploy.sh): SQLite backup, `git checkout main`, `uv sync`, migrations, static files, frontend build, service restart and HTTP check.
 - Production configuration is read from `backend/.env` (see [`backend/.env.example`](backend/.env.example)). The SSH key and server address are GitHub secrets. No secret is committed.
 - Backend logs on the server: `journalctl -u canopee`.

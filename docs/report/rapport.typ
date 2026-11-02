@@ -605,7 +605,7 @@ Le graphique montre notre organisation : Georgé a posé les fondations (modèle
 == Intégration continue (à chaque Pull Request)
 
 À chaque Pull Request vers `develop` ou `main`, GitHub Actions lance deux jobs en parallèle sur une machine neuve :
-- *Backend* : installation des dépendances avec `uv sync`, puis `manage.py test`.
+- *Backend* : installation des dépendances avec `uv sync`, lint et formatage avec `ruff`, puis les 45 tests (`manage.py test`).
 - *Frontend* : `npm ci`, le linter (`npm run lint`), puis le build de production (`npm run build`).
 
 Une Pull Request qui casse un test, le lint ou le build affiche une croix rouge avant même d'être relue.
@@ -638,29 +638,27 @@ Deux déploiements ne peuvent pas tourner en même temps (un verrou côté GitHu
 = Qualité, tests & gestion des erreurs
 // ============================================================
 
-*Lint et formatage.* Le frontend est vérifié par `oxlint` dans la CI. Côté Python, le code est formaté automatiquement par l'éditeur ; nous n'avons pas encore ajouté de linter Python à la CI.
+*Lint et formatage.* Le frontend est vérifié par `oxlint` dans la CI. Côté Python, `ruff` vérifie le code (imports inutilisés, variables non définies, ordre des imports) et son formatage. Les deux tournent dans la CI avant les tests : une Pull Request mal formatée est refusée automatiquement.
 
 *Documentation.* Le `README` présente le projet et explique comment le lancer en local en quelques commandes (backend avec `uv`, frontend avec `npm`) ; le dossier `docs/` contient le cahier des charges, le diagramme de classes, le devlog et la todolist. Le fichier `backend/.env.example` liste les variables nécessaires en production.
 
-*Tests.* Les 10 tests backend portent sur les points les plus sensibles : les *droits d'accès* et la *suppression de compte*.
+*Tests.* Les 45 tests backend couvrent le cœur du système, en vérifiant à chaque fois le code HTTP *et* l'état de la base :
 
-```
-test_participant_sees_their_conversation ............... ok
-test_non_participant_does_not_see_conversation ......... ok
-test_unauthenticated_user_cannot_list_conversations .... ok
-test_participant_can_read_messages ..................... ok
-test_non_participant_cannot_read_messages .............. ok
-test_unauthenticated_user_cannot_read_messages ......... ok
-test_wrong_password_is_refused ......................... ok
-test_account_is_deactivated_and_keeps_its_name ......... ok
-test_deleted_user_cannot_log_in ........................ ok
-test_cannot_write_to_a_deleted_user .................... ok
-Ran 10 tests — OK
-```
+#table(
+  columns: (1fr, 2.4fr, auto),
+  [*Fonctionnalité*], [*Ce qui est vérifié*], [*Tests*],
+  [Lister les conversations et lire les messages], [un participant voit ses conversations et l'historique ; un intrus ne voit rien ; un visiteur reçoit 401], [6],
+  [Envoyer un message], [201 et auteur pris dans le token (impossible de se faire passer pour un autre) ; message vide refusé ; intrus 404 ; visiteur 401], [5],
+  [Créer une conversation], [privée ou groupe selon le nombre de personnes ; pas de doublon de privée ; le client ne peut pas choisir le type ; seul avec soi-même, liste vide, pseudo inconnu ou compte supprimé refusés], [10],
+  [Ajouter un participant], [dans un groupe ; dans une privée, un nouveau groupe sans l'historique ; quelqu'un déjà présent ; pseudo inconnu, compte supprimé ou intrus refusés], [7],
+  [Renommer un groupe], [nom enregistré (espaces retirés) ; nom vide accepté ; privée et plus de 100 caractères refusés ; intrus 404], [5],
+  [WebSocket], [connexion refusée sans token ou avec un faux token ; un message envoyé par l'API arrive en direct chez l'autre ; chacun ne reçoit que ses propres événements], [4],
+  [Comptes], [inscription (mot de passe haché, jamais renvoyé), connexion du nouveau compte, pseudo déjà pris, mot de passe manquant ; suppression de compte et ses effets], [8],
+)
 
-Chaque test vérifie une seule règle, dans une base de test vide créée par Django : un participant voit sa conversation, un intrus ne voit rien, un visiteur non connecté reçoit une erreur 401, un compte supprimé ne peut plus se connecter, etc.
+Chaque test vérifie une seule règle, dans une base de test vide créée par Django. Le test WebSocket le plus utile suit le vrai chemin d'un message : Bob ouvre une connexion avec `WebsocketCommunicator` (l'outil de test de Channels), Alice envoie un message par l'API REST, et le test vérifie que Bob le reçoit. Nous avons vérifié qu'il échoue bien si le type d'événement envoyé par la vue est faux.
 
-*Ce qui n'est pas encore testé, et que nous testerions en priorité :* l'envoi d'un message (`POST`) avec ses cas d'erreur, les règles des groupes (pas de doublon de conversation privée, l'ajout dans une privée crée un groupe, seul un groupe peut être renommé), et le consumer WebSocket (connexion refusée sans token, réception d'un message), avec l'outil de test fourni par Channels. Ces fonctionnalités ont été testées à la main, avec plusieurs navigateurs connectés à des comptes différents.
+*Ce qui n'est pas encore testé :* le frontend (aucun test automatique côté React) et la reconnexion du WebSocket ; ces parties ont été testées à la main, avec plusieurs navigateurs connectés à des comptes différents.
 
 *Gestion des erreurs et des cas limites.*
 - Toutes les erreurs de l'API sont des réponses JSON avec un message (400, 401, 404), jamais une page d'erreur technique ; en production, `DEBUG` est désactivé.
@@ -753,7 +751,7 @@ Nous avons utilisé l'assistant *Claude* (Anthropic) tout au long du projet, pou
 *Avec plus de temps, nous ajouterions :*
 - un vrai *compteur de non-lus*, conservé après rechargement : un champ `last_read_at` par participant, ce qui demande de transformer la relation N-N en modèle explicite (`through=`) ;
 - un *administrateur de groupe*, la possibilité de *quitter un groupe*, et le tri des conversations par dernier message ;
-- des *tests* pour l'envoi de messages, les règles des groupes et le WebSocket ;
+- des *tests* côté frontend (React Testing Library) et sur la reconnexion du WebSocket ;
 - l'indicateur « en train d'écrire… » et le statut en ligne, qui réutiliseraient la connexion WebSocket existante ;
 - Redis et PostgreSQL seulement si le nombre d'utilisateurs l'exigeait.
 

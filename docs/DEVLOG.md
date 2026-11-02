@@ -1164,6 +1164,22 @@ Add a participant:
 
 ---
 
+<<<<<<< HEAD
+## Ruff (lint and format)
+
+Run from `backend/`.
+
+```bash
+uv run ruff check --fix .      # fix what can be fixed automatically
+uv run ruff format .           # format all files
+uv run ruff check .            # check that nothing is left
+uv run ruff format --check .   # check formatting without changing anything (what the CI runs)
+uv run ruff rule E402          # explain a rule
+```
+
+- `check` finds errors (unused imports, undefined names, import order); `format` rewrites the layout.
+- Ignore one rule on one line, on purpose and with a comment: `# noqa: E402` (used in `config/asgi.py`: those imports must stay after `get_asgi_application()`, otherwise Daphne crashes).
+=======
 ## 15. Cheat sheet: adding an API endpoint
 
 ### Steps
@@ -1245,3 +1261,4 @@ The name in `<int:...>` must match the argument of the view method.
 - Not checking a length limit (`max_length`): a 500 instead of a 400.
 - Model changed but no `makemigrations`, or the migration file not committed.
 - Server not restarted after switching branch: "URL not found".
+>>>>>>> origin/develop

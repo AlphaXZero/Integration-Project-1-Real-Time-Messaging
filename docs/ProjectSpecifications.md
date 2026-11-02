@@ -208,8 +208,8 @@ Simple and usable first, responsive, with clear error feedback. No complex visua
 - HTTPS in production.
 - Secrets in environment variables (`backend/.env`, documented in `.env.example`), never committed. The development `SECRET_KEY` in `settings.py` is only used when `DEBUG` is true: Django refuses to start in production without `DJANGO_SECRET_KEY`.
 - `DEBUG = False` in production; error pages never expose stack traces.
-- Systematic linting and consistent formatting (`oxlint` for the frontend in the CI).
-- Tests on the core: access rights and account deletion (10 tests, run in the CI).
+- Systematic linting and consistent formatting in the CI (`oxlint` for the frontend, `ruff` for the backend).
+- Tests on the core: access rights, messages, conversations and groups, WebSocket, accounts (45 tests, run in the CI).
 
 ## 9. Git Workflow
 
@@ -226,7 +226,7 @@ Simple and usable first, responsive, with clear error feedback. No complex visua
 **CI** (on every Pull Request): lint, build, and tests when they exist.
 **CD** (on every merge into `main`): automatic deployment, with a visible build status and accessible logs.
 
-Implemented with GitHub Actions: `ci.yml` (backend tests, frontend lint and build on every PR to `develop` or `main`) and `cd.yml` (the same checks, then SSH to the VPS and `deploy/deploy.sh` on every push to `main`). Backend logs: `journalctl -u canopee` on the server.
+Implemented with GitHub Actions: `ci.yml` (backend lint, format and tests, frontend lint and build on every PR to `develop` or `main`) and `cd.yml` (the same checks, then SSH to the VPS and `deploy/deploy.sh` on every push to `main`). Backend logs: `journalctl -u canopee` on the server.
 
 Hosting comparison criteria: price, CPU/RAM, storage and persistence, WebSocket support, PostgreSQL and Redis compatibility, GitHub deployment options, secrets handling, logs and monitoring, backups, ease of administration, reliability.
 
@@ -272,7 +272,7 @@ Hosting comparison criteria: price, CPU/RAM, storage and persistence, WebSocket 
 - Messages with history; real-time delivery of messages, new conversations and group changes; WebSocket reconnection.
 - Notifications: toast with sound, unread dot (not persistent).
 - Landing page, pricing page, team page, profile page; responsive interface.
-- Access rights checked on the backend (404 for a conversation the user is not part of); 10 automated tests.
+- Access rights checked on the backend (404 for a conversation the user is not part of); 45 automated tests; `ruff` in the CI.
 - CI on every pull request, automatic deployment on `main` to a VPS in HTTPS.
 
 **Partial**

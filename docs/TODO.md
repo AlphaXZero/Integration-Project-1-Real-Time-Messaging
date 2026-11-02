@@ -25,10 +25,11 @@ Linked to the evaluation grid (level 3 = "acquis").
 - [ ] Apply the quotas of the pricing page: maximum 10 members in a free group, and rate limiting on sending messages (DRF throttling) [B]
 
 ### Code quality and tests (AA 3.1)
-- [ ] Python lint and format in the CI (`ruff check` + `ruff format --check`); today only the frontend is linted [B]
-- [ ] Tests for the POST endpoints: send a message, create a conversation (private, group, duplicate), add a participant, rename (200/201, 400, 401, 404) [B]
-- [ ] Tests for `register` (valid, duplicate username, weak password) [B]
-- [ ] Test for the WebSocket consumer: rejected without token, receives a message (`WebsocketCommunicator`) [B]
+- [x] Python lint and format in the CI (`ruff check` + `ruff format --check`) [B]
+- [x] Tests for the POST endpoints: send a message, create a conversation (private, group, duplicate), add a participant, rename (200/201, 400, 401, 404) [B]
+- [x] Tests for `register` (valid, duplicate username, missing password) [B]
+- [ ] Test for a weak password, together with `validate_password` [B]
+- [x] Tests for the WebSocket consumer: rejected without or with a fake token, receives a message sent through the API, only its own events (`WebsocketCommunicator`) [B]
 - [ ] Django `LOGGING` configuration (errors written to the journal, readable with `journalctl -u canopee`) [B] [D]
 
 ### Deployment and collaboration (AA 3.2)
@@ -98,8 +99,9 @@ Linked to the evaluation grid (level 3 = "acquis").
 - [x] Responsive interface (one column with a back button on small screens) [F]
 
 ### Quality and deployment
-- [x] 10 backend tests: access rights and account deletion [B]
-- [x] CI on every PR: backend tests + frontend lint and build [B] [F]
+- [x] 45 backend tests: access rights, messages, conversations, groups, WebSocket, accounts [B]
+- [x] `ruff` lint and format for the backend, in the CI [B]
+- [x] CI on every PR: backend lint, format and tests + frontend lint and build [B] [F]
 - [x] Production settings from `.env` (`SECRET_KEY`, `DEBUG`, hosts, CORS), `.env.example` [D]
 - [x] Nginx (HTTPS, API, WebSockets) and systemd configuration [D]
 - [x] CD: automatic deployment on every push to `main` (backup, migrations, build, restart, HTTP check) [D]
