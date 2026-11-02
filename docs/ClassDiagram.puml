@@ -1,5 +1,5 @@
 @startuml
-title Class Diagram - Real-Time Messaging Application
+title Class Diagram - Canopée (Real-Time Messaging)
 
 skinparam classAttributeIconSize 0
 skinparam class {
@@ -16,10 +16,13 @@ class User <<Django built-in>> {
   +id : Integer
   +username : String {unique}
   -password : String {hashed}
+  +is_active : Boolean
 }
 
 class Conversation {
   +id : Integer
+  +is_group : Boolean = false
+  +name : String [0..100]
   +created_at : DateTime
 }
 
@@ -30,57 +33,54 @@ class Message {
 }
 
 ' ============================
-' Planned classes (not yet in code)
+' Planned class (not in the code yet)
 ' ============================
 
 class Membership <<planned>> {
-  +id : Integer
   +joined_at : DateTime
   +last_read_at : DateTime
 }
 
 ' ============================
-' Implemented associations
+' Associations
 ' ============================
 
-User "0..* conversations" -- "2..* participants" Conversation : participates in >
+User "2..* participants" -- "0..* conversations" Conversation : participates in >
 Conversation "1 conversation" *-- "0..* messages" Message : contains >
 User "1 author" -- "0..* messages" Message : writes >
 
-' Association class attached to the User <-> Conversation membership
 (User, Conversation) .. Membership
 
 ' ============================
 ' Notes
 ' ============================
 
-note bottom of Membership
-  <<planned>> association class, formalizing
-  the User <-> Conversation many-to-many.
-  Today this relation is a plain
-  participants = ManyToManyField(User)
-  on Conversation, with no join model.
-  Django can migrate it to a through=
-  model without breaking existing data,
-  once unread counters or per-member
-  join dates are needed.
-end note
-
 note right of Conversation
-  Planned attributes (for groups):
-  + type : String {enum: private, group}
-  + name : String (optional, groups only)
+  Private conversation: is_group = false,
+  exactly 2 participants, no name,
+  only one per pair of users.
+  Group: is_group = true, optional name.
+  is_group is set by the server, never by the client.
 end note
 
 note bottom of Message
   Django mapping:
   author = ForeignKey(User, on_delete=CASCADE)
   conversation = ForeignKey(Conversation, on_delete=CASCADE)
+  Deleting a conversation deletes its messages.
+end note
 
-  Planned attributes (if message editing
-  is picked as the optional feature):
-  + edited_at : DateTime
-  + is_deleted : Boolean
+note left of User
+  Account deletion is a soft delete:
+  is_active = false and an unusable password.
+  The user's messages stay visible.
+end note
+
+note bottom of Membership
+  <<planned>> association class for a
+  persistent unread counter. Today the relation
+  is a plain participants = ManyToManyField(User);
+  Django can migrate it to a through= model.
 end note
 
 @enduml

@@ -1164,13 +1164,84 @@ Add a participant:
 
 ---
 
-## Still to do
-- Persistent unread counter per conversation (`last_read_at` per participant).
-- Password strength check on registration + tests for `register`.
-- Tests for the `POST` endpoints (send a message, create a conversation, add a participant) and for the private/group rules.
-- Frontend for groups: show the group name, open the new group when adding someone to a private conversation.
-- Redis for the channel layer (production).
-- PostgreSQL at deployment (SQLite in development).
-- Nice to have: `GET /api/users/` for username autocompletion.
+## 15. Cheat sheet: adding an API endpoint
 
-Done by Valentin in the meantime: secrets and settings read from a `.env` file (`DJANGO_SECRET_KEY`, `DJANGO_DEBUG`...), Nginx + systemd configuration for the VPS, automatic token refresh, WebSocket reconnection, message toast with sound.
+### Steps
+1. **Choose the URL and the verb**: `GET` read, `POST` create / action, `PATCH` modify, `DELETE` delete.
+2. **Write the rules**: who can do it, what is sent, what is invalid, what is returned.
+3. **Write the view** in `views.py`.
+4. **Add the URL** in `urls.py`.
+5. **Notify in real time** if other users must see the change.
+6. **Test** with `curl`, then add the function in `frontend/src/api/`.
+
+### Which view?
+| Need | View | What to write |
+|---|---|---|
+| list + create | `generics.ListCreateAPIView` | `serializer_class`, `get_queryset()`, `perform_create()` |
+| action on one object | `APIView` | one method per verb: `def post(self, request, id)`, `def patch(...)`... |
+
+Always: `permission_classes = [permissions.IsAuthenticated]`.
+
+### Useful functions
+
+**Reading the request**
+| Code | Gives |
+|---|---|
+| `request.user` (`self.request.user` in generic views) | the logged-in user |
+| `request.data.get("key", default)` | a value from the JSON body, or `default` if missing |
+| method argument / `self.kwargs["id"]` | a value from the URL (`<int:id>`) |
+
+**Finding objects**
+| Code | Does |
+|---|---|
+| `get_object_or_404(Model, field=value, ...)` | one object, or stops with a **404**. Always add the permission filter (`participants=request.user`) |
+| `Model.objects.filter(...)` | all matching objects (AND between filters) |
+| `.exclude(...)` | the opposite of `filter` |
+| `.first()` | first result, or `None` |
+| `.exists()` | `True` / `False`, without loading the objects |
+| `.count()` | number of results |
+| `.order_by("field")` / `.order_by("-field")` | sort ascending / descending |
+| `relation__field=value` | filter through a relation (`conversation__participants=user`) |
+
+**Changing the database**
+| Code | Does |
+|---|---|
+| `Model.objects.create(field=value)` | create and save |
+| `obj.field = value` then `obj.save(update_fields=["field"])` | modify (nothing is saved without `.save()`) |
+| `obj.m2m.add(a, b)` / `.remove(a)` / `.set([a, b])` | add / remove / replace in a ManyToMany |
+| `obj.delete()` | delete |
+| `serializer.save(field=value)` | save with extra values the client can't send (`author=request.user`) |
+
+**Answering**
+| Code | Result |
+|---|---|
+| `Response(data)` | 200 |
+| `Response(data, status=201)` | created |
+| `Response({"field": "message"}, status=400)` | invalid data |
+| `raise ValidationError({"field": "message"})` | 400 from anywhere in a view (import from `rest_framework.exceptions`) |
+| `Serializer(obj).data` | the object as JSON |
+
+**Real time**
+```python
+channel_layer = get_channel_layer()
+for participant in conversation.participants.all():
+    async_to_sync(channel_layer.group_send)(
+        f"user_{participant.id}",
+        {"type": "conversation.updated", "conversation": data},
+    )
+```
+Existing types: `chat.message`, `conversation.created`, `conversation.updated`. A new type `"x.y"` needs a method `x_y` in `ChatConsumer`.
+
+### URL
+```python
+(path("conversations/<int:conversation_id>/", MyView.as_view(), name="my-view"),)
+```
+The name in `<int:...>` must match the argument of the view method.
+
+### Common mistakes
+- Filtering on a URL parameter name instead of a model field (`conversation_id=` instead of `id=`).
+- Forgetting the permission filter: anyone can act on anyone's data.
+- Calling a method on the class instead of the object (`Conversation.participants` vs `conversation.participants`).
+- Not checking a length limit (`max_length`): a 500 instead of a 400.
+- Model changed but no `makemigrations`, or the migration file not committed.
+- Server not restarted after switching branch: "URL not found".

@@ -1,9 +1,9 @@
 # Project Specifications
 
 **Real-Time Messaging Application (B2B)**
-Integration Project 1 — Team of 2 — Version 2.0 (September 2026)
+Integration Project 1 — Team of 2 — Version 3.0 (November 2026)
 
-This document replaces version 1.0. It reflects the architecture actually chosen (React + Django REST + JWT) and the requirements of the course assignment.
+Version 2.0 (September 2026) replaced version 1.0 with the architecture actually chosen (React + Django REST + JWT). Version 3.0 updates the status of every section at delivery time (02/11/2026). The final report (`docs/report/rapport.pdf`) explains the choices in more detail.
 
 ## 1. Project Overview
 
@@ -74,7 +74,10 @@ Only one or two will be chosen and integrated properly, once the MVP is stable.
 |---|---|---|
 | Visitor (not authenticated) | See the landing page and pricing, register, log in | Access any conversation or send a message |
 | User (authenticated) | See own conversations, start private and group conversations, send and read messages in own conversations, log out | Read or write in a conversation they are not a participant of |
-| Group admin *(to be defined)* | Manage the participants of a group | — |
+| Participant of a conversation | Read the history, send messages, add someone, rename a group, see the members | Write to a user who deleted their account |
+| Administrator (Django staff) | Manage all data in the Django admin (`/admin/`) | — |
+
+There is no group admin role: every participant of a group has the same rights (kept simple for small teams; see the report).
 
 Permissions are enforced on the backend for every request. The frontend is never trusted.
 
@@ -84,29 +87,34 @@ Permissions are enforced on the backend for every request. The frontend is never
 
 | Component | Technology | Status |
 |---|---|---|
-| Frontend | React (Vite) | Initialized |
-| Backend | Django + Django REST Framework | Initialized |
-| Authentication | JWT (`djangorestframework-simplejwt`) | Token endpoints working |
-| Cross-origin | `django-cors-headers`, strict allowed origins | Configured (dev origin) |
-| Real-time | Django Channels / WebSockets | To do |
-| Channel layer | Redis | To do |
-| Database | SQLite in development, PostgreSQL in production | SQLite in use |
-| Hosting | VPS (OVH or Hostkey, to be decided) | To decide |
-| Containerization | Docker (to be decided) | To decide |
-| CI/CD | GitHub Actions | To do |
+| Frontend | React 19 (Vite), React Router, Tailwind CSS | Done |
+| Backend | Django 6 + Django REST Framework | Done |
+| Authentication | JWT (`djangorestframework-simplejwt`), 30 min access, 3 day refresh | Done |
+| Cross-origin | `django-cors-headers`, strict allowed origins from `.env` | Done |
+| Real-time | Django Channels / WebSockets, served by Daphne (ASGI) | Done |
+| Channel layer | In-memory (`InMemoryChannelLayer`) | Done — Redis only if several processes are needed |
+| Database | SQLite in development and production, backed up before each deployment | Done — PostgreSQL only if the load requires it |
+| Hosting | Debian VPS, Nginx (HTTPS, Let's Encrypt), systemd | Done |
+| Containerization | Docker | Not used (one service, deployed by a script) |
+| CI/CD | GitHub Actions | Done |
 
-The stack must be validated by the teacher before development goes further. The hosting choice guides the stack: persistence and WebSocket support are required.
+The stack was validated by the teacher. The hosting choice guided the stack: persistence and long WebSocket connections are required, which a VPS provides.
+
+**Why SQLite and an in-memory channel layer.** The backend runs as a single Daphne process for a few dozen users: there are no concurrent writers from several servers, and every WebSocket connection lives in the same process. SQLite is a complete transactional database that needs no server and is backed up by copying a file. PostgreSQL and Redis would add two services to install, secure and monitor for no visible gain at this scale. Moving to them only means changing `DATABASES` and `CHANNEL_LAYERS` in `settings.py`.
 
 ### 4.2 Overview
 
 ```
-React (SPA)
-   │  HTTP (REST, JSON)  +  WebSocket
+Browser (React SPA)
+   │  HTTPS (REST, JSON)  +  WSS (WebSocket)
    ▼
-Django + DRF + Django Channels
-   │                    │
-   ▼                    ▼
-PostgreSQL            Redis
+Nginx (static frontend, /api and /ws proxied)
+   │
+   ▼
+Daphne (ASGI): Django + DRF + Django Channels
+   │                         │
+   ▼                         ▼
+SQLite                 In-memory channel layer
 ```
 
 The frontend and the backend are two separate applications, deployed separately. They talk through a JSON API and WebSockets.
@@ -118,8 +126,9 @@ Session cookies were tried first and dropped: with frontend and backend on diffe
 - `POST /api/token/` with `username` and `password` returns an `access` token (short-lived) and a `refresh` token (long-lived).
 - `POST /api/token/refresh/` returns a new `access` token from a `refresh` token.
 - The client sends `Authorization: Bearer <access>` on every request.
-- Open point: browsers cannot set headers on a WebSocket handshake, so the WebSocket authentication method (token in the query string or in a first message) has to be decided.
-- Open point: where the frontend stores the token (memory or `localStorage`) and the security trade-off.
+- WebSocket authentication: browsers cannot set headers on a WebSocket handshake, so the access token is sent in the query string (`/ws/chat/?token=...`). The consumer refuses the connection if the token is missing, invalid or expired.
+- The tokens are stored in `localStorage`. They can be read by JavaScript, so an XSS flaw would expose them; React escapes all displayed text, which limits this risk. `HttpOnly` cookies would be safer but bring back the CSRF problems described above.
+- When an access token expires, the frontend uses the refresh token to get a new one and replays the request; if the refresh token has expired too (after 3 days), the user is sent back to the login page.
 
 ### 4.4 API (current and planned)
 
@@ -127,27 +136,32 @@ Session cookies were tried first and dropped: with frontend and backend on diffe
 |---|---|---|
 | `POST /api/token/` | Log in, get JWT pair | Done |
 | `POST /api/token/refresh/` | Refresh the access token | Done |
-| `POST /api/register/` | Create an account | To do |
-| `GET /api/conversations/` | List my conversations | To do |
-| `POST /api/conversations/` | Start a private or group conversation | To do |
-| `GET /api/conversations/<id>/messages/` | Read the history | To do |
-| `POST /api/conversations/<id>/messages/` | Send a message | To do |
-| `WS /ws/...` | Real-time delivery and notifications | To do |
+| `POST /api/register/` | Create an account | Done |
+| `DELETE /api/me/` | Delete my account (password required) | Done |
+| `GET /api/conversations/` | List my conversations | Done |
+| `POST /api/conversations/` | Start a private or group conversation (an existing private one is returned) | Done |
+| `PATCH /api/conversations/<id>/` | Rename a group | Done |
+| `GET /api/conversations/<id>/messages/` | Read the history | Done |
+| `POST /api/conversations/<id>/messages/` | Send a message | Done |
+| `POST /api/conversations/<id>/participants/` | Add a participant (to a private conversation: creates a new group) | Done |
+| `WS /ws/chat/?token=<access>` | Real-time events `{type, data}`: `message`, `conversation` | Done |
 
 Logout with JWT is handled on the client (the tokens are discarded). Server-side revocation is out of scope for now.
 
 ## 5. Data Model
 
-The class diagram is in `class_diagram.puml`.
+The class diagram is in `ClassDiagram.puml`.
 
 ### 5.1 User
 
-Django's built-in `User` model: unique identifier, unique username, hashed password.
+Django's built-in `User` model: unique identifier, unique username, hashed password, `is_active`. Deleting an account sets `is_active` to false and makes the password unusable (soft delete), so the user's messages stay visible to the others.
 
 ### 5.2 Conversation
 
 - Identifier.
 - `participants`: many-to-many relation with `User`. Django creates the join table automatically. This supports 1:1 and group conversations with the same structure.
+- `is_group`: false for a private conversation (exactly 2 participants, only one per pair of users), true for a group. Set by the server.
+- `name`: optional, groups only (max 100 characters).
 - `created_at`.
 
 ### 5.3 Message
@@ -160,25 +174,24 @@ Django's built-in `User` model: unique identifier, unique username, hashed passw
 
 Deleting a user or a conversation deletes the related messages (`CASCADE`).
 
-### 5.4 Planned model changes
+### 5.4 Migrations and planned changes
 
-A simple many-to-many was chosen on purpose (start simple). The assignment adds needs that will probably require changes:
+- `0001_initial`: conversations and messages.
+- `0002`: `is_group` (default false) and `name`.
+- `0003`: data migration that marks as groups the conversations created before `0002` with more than two participants.
 
-- **Unread counters:** need to know, for each participant, what they have already read. This means a per-participant marker (e.g. `last_read_at`), so the many-to-many will likely become an explicit join model (`through=`).
-- **Groups:** a conversation type (private/group) and an optional name.
-
-Django can migrate a simple many-to-many to a `through` model. The decision will be taken when the notifications feature starts.
+Still planned: a persistent **unread counter** needs, for each participant, what they have already read (`last_read_at`). The many-to-many will then become an explicit join model (`through=`), which Django can migrate without losing data.
 
 ## 6. Real-Time Communication
 
-1. User A opens a conversation; the browser opens a WebSocket to the backend.
-2. User A sends a message.
+1. When the chat page opens, the browser opens **one** WebSocket for the user (not one per conversation). The consumer adds it to the user's personal group `user_<id>`.
+2. User A sends a message with a normal `POST` request.
 3. Django checks that A is a participant, then stores the message in the database.
-4. Django broadcasts the event to the other participants through the channel layer.
+4. The view sends the event to the personal group of every participant through the channel layer.
 5. User B receives it immediately; it appears without refresh.
-6. If B has another conversation open, a badge, a toast and the unread counter are updated.
+6. If B has another conversation open, a toast (with sound) and an unread dot are shown.
 
-Django Channels manages the connections. Redis is the channel layer, needed as soon as the backend runs with several processes.
+New conversations, added participants and renamed groups are pushed the same way (`conversation` events). If the connection drops, the frontend reconnects with an increasing delay and reloads what it missed. The in-memory channel layer is enough for a single process; Redis would be needed with several.
 
 ## 7. User Interface
 
@@ -193,10 +206,10 @@ Simple and usable first, responsive, with clear error feedback. No complex visua
 - All user input is validated and escaped.
 - CORS restricted to the exact frontend origin(s); never a wildcard.
 - HTTPS in production.
-- Secrets in environment variables, never committed. **Current gap:** the development `SECRET_KEY` is still in `settings.py`; it will be moved to a `.env` file, and production will use a new key.
+- Secrets in environment variables (`backend/.env`, documented in `.env.example`), never committed. The development `SECRET_KEY` in `settings.py` is only used when `DEBUG` is true: Django refuses to start in production without `DJANGO_SECRET_KEY`.
 - `DEBUG = False` in production; error pages never expose stack traces.
-- Systematic linting and consistent formatting.
-- Tests on the core: sending/reading a message and access rights.
+- Systematic linting and consistent formatting (`oxlint` for the frontend in the CI).
+- Tests on the core: access rights and account deletion (10 tests, run in the CI).
 
 ## 9. Git Workflow
 
@@ -213,7 +226,7 @@ Simple and usable first, responsive, with clear error feedback. No complex visua
 **CI** (on every Pull Request): lint, build, and tests when they exist.
 **CD** (on every merge into `main`): automatic deployment, with a visible build status and accessible logs.
 
-The pipeline starts as a basic one (course 2) and is enriched during the year. Once it exists, "require status checks" will be enabled in the `main` protection rule.
+Implemented with GitHub Actions: `ci.yml` (backend tests, frontend lint and build on every PR to `develop` or `main`) and `cd.yml` (the same checks, then SSH to the VPS and `deploy/deploy.sh` on every push to `main`). Backend logs: `journalctl -u canopee` on the server.
 
 Hosting comparison criteria: price, CPU/RAM, storage and persistence, WebSocket support, PostgreSQL and Redis compatibility, GitHub deployment options, secrets handling, logs and monitoring, backups, ease of administration, reliability.
 
@@ -251,23 +264,22 @@ Hosting comparison criteria: price, CPU/RAM, storage and persistence, WebSocket 
 12. Restarting the backend does not delete data.
 13. The interface is usable on a small screen.
 
-## 14. Current Status
+## 14. Current Status (02/11/2026)
 
 **Done**
-- Monorepo structure, GitHub repository, `main` protection rule.
-- Django + DRF project with `accounts` and `chat` apps.
-- CORS configuration for the development origin.
-- JWT token and refresh endpoints, tested.
-- React (Vite) frontend initialized.
+- Accounts: registration, JWT login with automatic refresh, logout, account deletion (soft delete).
+- Private and group conversations, no duplicate private conversation, group name, renaming, member list, adding a participant.
+- Messages with history; real-time delivery of messages, new conversations and group changes; WebSocket reconnection.
+- Notifications: toast with sound, unread dot (not persistent).
+- Landing page, pricing page, team page, profile page; responsive interface.
+- Access rights checked on the backend (404 for a conversation the user is not part of); 10 automated tests.
+- CI on every pull request, automatic deployment on `main` to a VPS in HTTPS.
 
-**Next**
-1. Registration endpoint.
-2. Conversation and message models, migrations, admin.
-3. Conversation and message API with permission checks.
-4. Login screen and conversation list in React.
-5. Move the secret key to `.env`.
-6. WebSockets with Django Channels.
-7. Notifications.
-8. CI/CD, hosting choice, deployment.
-9. Landing page, pricing, responsive polish.
-10. PostgreSQL in production, then optional features.
+**Partial**
+- Unread counter: a dot per conversation, lost on reload (acceptance scenario 7 is only partly met).
+
+**Not done**
+- Group admin role, leaving a group.
+- Optional features from the assignment (files, search, co-editing, chatbot).
+
+The detailed list of next steps is in `TODO.md`.
