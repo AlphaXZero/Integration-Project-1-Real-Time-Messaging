@@ -7,11 +7,15 @@ from chat.models import Conversation, Message
 
 class DeleteAccountTest(APITestCase):
     def setUp(self):
-        self.alice = User.objects.create_user(username="alice", password="AlicePassword1")
+        self.alice = User.objects.create_user(
+            username="alice", password="AlicePassword1"
+        )
         self.bob = User.objects.create_user(username="bob", password="BobPassword1")
         self.conv = Conversation.objects.create()
         self.conv.participants.add(self.alice, self.bob)
-        Message.objects.create(author=self.bob, conversation=self.conv, content="message de bob")
+        Message.objects.create(
+            author=self.bob, conversation=self.conv, content="message de bob"
+        )
 
     def delete_bob(self, password):
         self.client.force_authenticate(user=self.bob)
@@ -34,13 +38,18 @@ class DeleteAccountTest(APITestCase):
     def test_deleted_user_cannot_log_in(self):
         self.delete_bob("BobPassword1")
         response = self.client.post(
-            "/api/token/", {"username": "bob", "password": "BobPassword1"}, format="json"
+            "/api/token/",
+            {"username": "bob", "password": "BobPassword1"},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_cannot_write_to_a_deleted_user(self):
         self.delete_bob("BobPassword1")
         self.client.force_authenticate(user=self.alice)
         response = self.client.post(
-            f"/api/conversations/{self.conv.id}/messages/", {"content": "allo ?"}, format="json"
+            f"/api/conversations/{self.conv.id}/messages/",
+            {"content": "allo ?"},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
