@@ -1262,3 +1262,6 @@ uv run ruff rule E402          # explain a rule
 
 - `check` finds errors (unused imports, undefined names, import order); `format` rewrites the layout.
 - Ignore one rule on one line, on purpose and with a comment: `# noqa: E402` (used in `config/asgi.py`: those imports must stay after `get_asgi_application()`, otherwise Daphne crashes).
+
+## 17. run seeder
+uv run manage.py seed
