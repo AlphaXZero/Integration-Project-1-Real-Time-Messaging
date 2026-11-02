@@ -1,86 +1,69 @@
 @startuml
 title Class Diagram - Canopée (Real-Time Messaging)
 
+' UML 2 notation: no PlantUML "C" circles, empty compartments hidden
+skinparam style strictuml
 skinparam classAttributeIconSize 0
-skinparam class {
-  BackgroundColor<<planned>> White
-  BorderColor<<planned>> Gray
-  FontColor<<planned>> Gray
-}
+hide circle
+hide empty methods
+skinparam nodesep 80
+skinparam ranksep 100
 
 ' ============================
-' Implemented classes
+' Classes (as implemented)
 ' ============================
 
-class User <<Django built-in>> {
-  +id : Integer
+class User <<Django>> {
+  +id : Integer {id, readOnly}
   +username : String {unique}
-  -password : String {hashed}
-  +is_active : Boolean
+  -password : String
+  +is_active : Boolean = true
 }
 
 class Conversation {
-  +id : Integer
+  +id : Integer {id, readOnly}
   +is_group : Boolean = false
-  +name : String [0..100]
-  +created_at : DateTime
+  +name : String = ""
+  +created_at : DateTime {readOnly}
 }
 
 class Message {
-  +id : Integer
+  +id : Integer {id, readOnly}
   +content : String
-  +created_at : DateTime
-}
-
-' ============================
-' Planned class (not in the code yet)
-' ============================
-
-class Membership <<planned>> {
-  +joined_at : DateTime
-  +last_read_at : DateTime
+  +created_at : DateTime {readOnly}
 }
 
 ' ============================
 ' Associations
 ' ============================
 
-User "2..* participants" -- "0..* conversations" Conversation : participates in >
-Conversation "1 conversation" *-- "0..* messages" Message : contains >
-User "1 author" -- "0..* messages" Message : writes >
-
-(User, Conversation) .. Membership
+Conversation "+conversations 0..*" -- "+participants 2..*" User : participates in <
+Conversation "+conversation 1" *-- "+messages 0..*" Message : contains >
+Message "+messages 0..*" --> "+author 1" User : written by >
 
 ' ============================
-' Notes
+' Constraints
 ' ============================
 
 note right of Conversation
-  Private conversation: is_group = false,
-  exactly 2 participants, no name,
-  only one per pair of users.
-  Group: is_group = true, optional name.
+  {not is_group implies participants->size() = 2}
+  {not is_group implies name = ''}
+  {name.size() <= 100}
+  {at most one private conversation per pair of users}
   is_group is set by the server, never by the client.
 end note
 
 note bottom of Message
-  Django mapping:
-  author = ForeignKey(User, on_delete=CASCADE)
-  conversation = ForeignKey(Conversation, on_delete=CASCADE)
-  Deleting a conversation deletes its messages.
+  {content <> ''}
+  The author is the logged-in user, never sent by the client.
+  Deleting a conversation deletes its messages (composition).
 end note
 
 note left of User
   Account deletion is a soft delete:
-  is_active = false and an unusable password.
-  The user's messages stay visible.
-end note
-
-note bottom of Membership
-  <<planned>> association class for a
-  persistent unread counter. Today the relation
-  is a plain participants = ManyToManyField(User);
-  Django can migrate it to a through= model.
+  is_active = false, password unusable,
+  the user's messages stay visible.
+  password is stored hashed.
 end note
 
 @enduml
